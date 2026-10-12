@@ -35,6 +35,7 @@ performance_profile_segments_nolog <- list(
 )
 
 PP_RATIO_FEASIBLE <- 100000
+PP_RATIO_CONNECTIVITY <- 500000
 PP_RATIO_IMBALANCED <- 1000000
 PP_RATIO_TIMEOUT <- 2000000
 PP_RATIO_FAILED <- 3000000
@@ -43,7 +44,7 @@ PP_RATIO_FAILED <- 3000000
 #'
 #' @param ... Normalized result data frames with identical primary keys.
 #' @param fractions Ratios at which to sample the step curves.
-#' @param column.objective,column.algorithm,column.timeout,column.imbalanced,column.failed
+#' @param column.objective,column.algorithm,column.timeout,column.imbalanced,column.failed,column.connectivity
 #'   Source column names.
 #' @param primary_key Columns that identify common instances.
 #' @return A data frame suitable for performance-profile plotting.
@@ -53,6 +54,7 @@ create_performance_profile_data <- function(
         1.0, 
         1.1, 
         PP_RATIO_FEASIBLE, 
+        PP_RATIO_CONNECTIVITY,
         PP_RATIO_IMBALANCED, 
         PP_RATIO_TIMEOUT,
         PP_RATIO_FAILED
@@ -62,9 +64,13 @@ create_performance_profile_data <- function(
     column.timeout = "Timeout",
     column.imbalanced = "Imbalanced",
     column.failed = "Failed",
+    column.connectivity = "FailedConnectivity",
     primary_key = c("Graph", "K")) {
     #
-    all_dfs <- list(...)
+    all_dfs <- lapply(list(...), function(df) {
+        if (!column.connectivity %in% names(df)) df[[column.connectivity]] <- FALSE
+        df
+    })
 
     num_rows <- nrow(all_dfs[[1]])
     best <- do.call(pmin, lapply(all_dfs, \(df) df[[column.objective]]))
@@ -73,9 +79,10 @@ create_performance_profile_data <- function(
         df <- df %>%
             dplyr::mutate(Ratio = df[[column.objective]] / best) %>%
             dplyr::mutate(Ratio = case_when(
-                df[[column.imbalanced]] ~ PP_RATIO_IMBALANCED,
                 df[[column.timeout]] ~ PP_RATIO_TIMEOUT,
-                df[[column.failed]] & !df[[column.timeout]] ~ PP_RATIO_FAILED,
+                df[[column.failed]] ~ PP_RATIO_FAILED,
+                df[[column.connectivity]] ~ PP_RATIO_CONNECTIVITY,
+                df[[column.imbalanced]] ~ PP_RATIO_IMBALANCED,
                 TRUE ~ Ratio
             )) %>%
             dplyr::group_by(Ratio) %>%
@@ -111,32 +118,42 @@ create_performance_profile_data <- function(
 #' Plot a performance profile over multiple algorithms.
 #'
 #' @param ... Normalized result data frames with identical primary keys.
-#' @param column.objective,column.algorithm,column.timeout,column.imbalanced,column.failed
+#' @param column.objective,column.algorithm,column.timeout,column.imbalanced,column.failed,column.connectivity
 #'   Source column names.
 #' @param primary_key Columns that identify common instances.
 #' @param segments Axis segments defining the broken/log-scaled ratio axis.
-#' @param segment.errors.width Width reserved for imbalanced, timeout, and failed
+#' @param column.components Column holding mean extra components for C violations.
+#' @param segment.connectivity.width Width of the linear extra-components scale at C.
+#' @param segment.connectivity.gap Unmeasured horizontal gap before C.
+#' @param segment.errors.width Width reserved for connectivity, imbalance, timeout, and failure
 #'   markers.
 #' @param tex If `TRUE`, use TeX math and symbolic error labels.
-#' @param label.timeout,label.imbalanced,label.failed Labels for error markers.
+#' @param label.timeout,label.imbalanced,label.failed,label.connectivity Labels for error markers.
 #' @param colors Optional named algorithm colors.
 #' @param levels Optional algorithm ordering.
 #' @param axis.y.sparse_labels If `TRUE`, label every other y tick.
 #' @param plot.xlab,plot.ylab Axis labels; set to `NA` to omit.
 #' @param legend.title Legend title, `NULL`, or `ggplot2::waiver()`.
-create_performance_profile_plot <- \(
+.create_performance_profile_plot <- \(
     ...,
     column.objective = "AvgCut",
     column.algorithm = "Algorithm",
     column.timeout = "Timeout",
     column.imbalanced = "Imbalanced",
     column.failed = "Failed",
+    column.connectivity = "FailedConnectivity",
+    connectivity.profile = FALSE,
+    merge.failures = FALSE,
+    column.components = "AvgConnectivity",
+    segment.connectivity.width = 4,
+    segment.connectivity.gap = 1,
     primary_key = c("Graph", "K"),
     segments = default_performance_profile_segments,
     segment.errors.width = 1.5,
     tex = FALSE,
     label.timeout = plot_label(tex, TEX_LABEL_TIMEOUT, PDF_LABEL_TIMEOUT),
     label.imbalanced = plot_label(tex, TEX_LABEL_IMBALANCED, PDF_LABEL_IMBALANCED),
+    label.connectivity = plot_label(tex, TEX_LABEL_CONNECTIVITY, PDF_LABEL_CONNECTIVITY),
     label.failed = plot_label(tex, TEX_LABEL_FAILED, PDF_LABEL_FAILED),
     colors = c(),
     levels = c(),
@@ -145,10 +162,40 @@ create_performance_profile_plot <- \(
     plot.ylab = NA,
     legend.title = ggplot2::waiver()
 ) {
-    all_dfs <- list(...)
+    all_dfs <- lapply(list(...), function(df) {
+        if (!column.connectivity %in% names(df)) df[[column.connectivity]] <- FALSE
+        df
+    })
 
     if (length(all_dfs) <= 1) {
         cli::cli_abort("Need at least two data frames for plotting a performance profile.")
+    }
+
+    # Expand C into an absolute scale of average extra components.
+    component_max <- 1
+    if (connectivity.profile) {
+        component_values <- unlist(lapply(all_dfs, function(df) {
+            if (!column.components %in% names(df)) {
+                if (any(df[[column.connectivity]])) {
+                    stop("Connectivity violations require the ", column.components, " column.")
+                }
+                return(numeric())
+            }
+            values <- df[[column.components]][df[[column.connectivity]] &
+                !df[[column.timeout]] & !df[[column.failed]]]
+            if (!is.numeric(values) || anyNA(values) || any(!is.finite(values) | values < 0)) {
+                stop("Connectivity violations require finite nonnegative component values.")
+            }
+            values
+        }))
+        component_max <- max(c(1, component_values))
+        component_breaks <- pretty(c(0, component_max), n = 4)
+        component_breaks <- component_breaks[component_breaks >= 0]
+        component_max <- max(component_breaks)
+        for (i in seq_along(all_dfs)) {
+            if (!column.components %in% names(all_dfs[[i]])) all_dfs[[i]][[column.components]] <- 0
+        }
+
     }
 
     # Run some basic sanity checks against the data frames
@@ -204,9 +251,11 @@ create_performance_profile_plot <- \(
         df <- df %>%
             dplyr::mutate(Ratio = df[[column.objective]] / best) %>%
             dplyr::mutate(Ratio = case_when(
+                df[[column.timeout]] ~ if (merge.failures) PP_RATIO_FAILED else PP_RATIO_TIMEOUT,
+                df[[column.failed]] ~ PP_RATIO_FAILED,
+                df[[column.connectivity]] ~ PP_RATIO_CONNECTIVITY +
+                    if (connectivity.profile) df[[column.components]] / component_max else 0,
                 df[[column.imbalanced]] ~ PP_RATIO_IMBALANCED,
-                df[[column.timeout]] ~ PP_RATIO_TIMEOUT,
-                df[[column.failed]] & !df[[column.timeout]] ~ PP_RATIO_FAILED,
                 TRUE ~ Ratio
             )) %>%
             dplyr::group_by(Ratio) %>%
@@ -250,7 +299,7 @@ create_performance_profile_plot <- \(
         from <- segment$to
     }
 
-    # Map errors (imbalanced, timeout, failed)
+    # Map errors (connectivity, imbalance, timeout, failure)
     map_errors <- function(vals) {
         purrr::map_int(vals, ~ case_when(
             .x == PP_RATIO_IMBALANCED ~ 1,
@@ -261,13 +310,48 @@ create_performance_profile_plot <- \(
         ))
     }
 
-    data <- data %>%
-        dplyr::mutate(Transformed = ifelse(Transformed == 0 & Ratio >= from, 1, Transformed)) %>%
-        dplyr::mutate(Ratio = ifelse(Transformed == 1,
-            offset + segment.errors.width * map_errors(Ratio) / 3,
-            Ratio
-        )) %>%
-        dplyr::mutate(Transformed = ifelse(Transformed == 1, 2, Transformed))
+    if (connectivity.profile) {
+        data <- data %>%
+            dplyr::mutate(Transformed = ifelse(Transformed == 0 & Ratio >= from, 1, Transformed)) %>%
+            dplyr::mutate(Ratio = ifelse(Transformed == 1,
+                offset + ifelse(
+                    Ratio >= PP_RATIO_CONNECTIVITY & Ratio <= PP_RATIO_CONNECTIVITY + 1,
+                    segment.connectivity.gap + segment.connectivity.width * (Ratio - PP_RATIO_CONNECTIVITY),
+                    ifelse(map_errors(Ratio) > 0, segment.connectivity.gap + segment.connectivity.width +
+                        segment.errors.width * map_errors(Ratio) / 3, 0)
+                ),
+                Ratio
+            )) %>%
+            dplyr::mutate(Transformed = ifelse(Transformed == 1, 2, Transformed))
+
+        # Anchor both ends of the unmeasured gap at the same cumulative fraction.
+        anchors <- purrr::map_dfr(unique(data$Algorithm), function(algorithm) {
+            curve <- data[data$Algorithm == algorithm, ]
+            fraction <- max(c(0, curve$Fraction[curve$Ratio <= offset]))
+            data.frame(Algorithm = algorithm,
+                       Ratio = c(offset, offset + segment.connectivity.gap),
+                       Fraction = fraction, Transformed = 2)
+        })
+        data <- dplyr::bind_rows(data, anchors) %>%
+            dplyr::arrange(Algorithm, Ratio, Fraction)
+
+    } else if (merge.failures) {
+        data <- data %>% dplyr::mutate(Ratio = ifelse(Transformed == 0 & Ratio >= from,
+            offset + segment.errors.width * dplyr::case_when(
+                Ratio == PP_RATIO_IMBALANCED ~ 1/4,
+                Ratio == PP_RATIO_FAILED | Ratio == Inf ~ 2/4,
+                TRUE ~ 0
+            ), Ratio))
+    } else {
+        data <- data %>% dplyr::mutate(Ratio = ifelse(Transformed == 0 & Ratio >= from,
+            offset + segment.errors.width * dplyr::case_when(
+                Ratio == PP_RATIO_CONNECTIVITY ~ 1/4,
+                Ratio == PP_RATIO_IMBALANCED ~ 2/4,
+                Ratio == PP_RATIO_TIMEOUT ~ 3/4,
+                Ratio == PP_RATIO_FAILED | Ratio == Inf ~ 1,
+                TRUE ~ 0
+            ), Ratio))
+    }
 
     # Generate x axis breaks and labels
     x_breaks <- c()
@@ -285,12 +369,21 @@ create_performance_profile_plot <- \(
         offset <- offset + segment$width
         from <- segment$to
     }
-    x_breaks <- c(x_breaks, c(
-        offset + segment.errors.width * (1 / 3),
-        offset + segment.errors.width * (2 / 3),
-        offset + segment.errors.width
-    ))
-    x_labels <- c(x_labels, c(label.imbalanced, label.timeout, label.failed))
+    if (connectivity.profile) {
+        x_breaks <- c(x_breaks,
+            offset + segment.connectivity.gap + segment.connectivity.width * component_breaks / component_max,
+            offset + segment.connectivity.gap + segment.connectivity.width + segment.errors.width * c(1/3, 2/3, 1))
+        component_labels <- format(signif(component_breaks, 3), trim = TRUE)
+        component_labels[1] <- paste0(label.connectivity, ": ", component_labels[1])
+        x_labels <- c(x_labels, component_labels, label.imbalanced, label.timeout, label.failed)
+
+    } else if (merge.failures) {
+        x_breaks <- c(x_breaks, offset + segment.errors.width * c(1/4, 2/4))
+        x_labels <- c(x_labels, label.imbalanced, label.failed)
+    } else {
+        x_breaks <- c(x_breaks, offset + segment.errors.width * c(1/4, 2/4, 3/4, 1))
+        x_labels <- c(x_labels, label.connectivity, label.imbalanced, label.timeout, label.failed)
+    }
 
     # Draw plot
     y_labels <- if (axis.y.sparse_labels) {
@@ -304,7 +397,8 @@ create_performance_profile_plot <- \(
     }
 
     plot <- ggplot2::ggplot(data, ggplot2::aes(x = Ratio, y = Fraction, color = Algorithm)) +
-        ggplot2::scale_x_continuous(expand = c(0, 0.01), breaks = x_breaks, labels = x_labels) +
+        ggplot2::scale_x_continuous(limits = c(0, max(x_breaks)),
+                                    expand = c(0, 0.01), breaks = x_breaks, labels = x_labels) +
         ggplot2::scale_y_continuous(limits = c(0, 1), expand = c(0, 0.01), breaks = seq(0.0, 1.0, by = 0.1), labels = y_labels) +
         ggplot2::geom_step(linewidth = 1.5) +
         ggplot2::guides(color = ggplot2::guide_legend(title = legend.title))
@@ -322,10 +416,35 @@ create_performance_profile_plot <- \(
         plot <- plot + ggplot2::ylab(plot.ylab)
     }
 
+    if (connectivity.profile) plot <- plot + ggplot2::geom_vline(xintercept = c(
+        offset + segment.connectivity.gap,
+        offset + segment.connectivity.gap + segment.connectivity.width))
+
     # Set colors
     if (length(colors) > 0) {
         plot <- plot + ggplot2::scale_color_manual(name = "Algorithm", values = colors)
     }
 
     return(plot)
+}
+
+# Standard performance profile with categorical C, I, T, F markers.
+create_performance_profile_plot <- function(...) {
+    .create_performance_profile_plot(..., connectivity.profile = FALSE)
+}
+
+# Performance profile with a scale of average extra components in the C section.
+create_connectivity_performance_profile_plot <- function(...) {
+    .create_performance_profile_plot(..., connectivity.profile = TRUE)
+}
+
+# Ignore connectivity; use I for imbalance and F for execution failure or timeout.
+create_imbalance_performance_profile_plot <- function(
+    ...,
+    column.objective = "AvgCutWithoutConnectivity",
+    column.imbalanced = "ImbalancedWithoutConnectivity"
+) {
+    .create_performance_profile_plot(
+        ..., column.objective = column.objective, column.imbalanced = column.imbalanced,
+        column.connectivity = ".IgnoredConnectivity", merge.failures = TRUE)
 }

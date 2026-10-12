@@ -17,6 +17,27 @@ Place standalone example `*.csv` files in `data/` and load them in
 `Cores`, `Failed`, and `Timeout`. Run `make example-pdf` or `make example-tex`
 to generate example plots.
 
+Connectivity-aware CSVs can use this header:
+
+```csv
+Graph,K,Cut,Time,Imbalance,Connectivity,FailedImbalance,FailedConnectivity,Failed
+```
+
+`Connectivity` is a nonnegative number (including fractional averages) of unnecessary components in the
+resulting partitioning: zero satisfies the constraint; any positive count violates
+it. `FailedImbalance` and `FailedConnectivity` are optional 0/1 flags. They are
+combined with violations derived from `Imbalance > Epsilon` and `Connectivity > 0`.
+Keep `Failed` for execution failures and `Timeout` for timeouts. Old CSVs without
+connectivity columns assume zero unnecessary components; existing data is not
+rewritten because connectivity counts cannot be recovered from the old columns.
+
+Constraint-violating runs are excluded from the feasible objective average. Across
+repeated runs, an instance with a feasible run remains feasible. If all runs violate
+connectivity, it belongs to C; otherwise an instance with no feasible objective
+belongs to I (unless it is an execution failure or timeout). The normalized
+`Connectivity` column stores the minimum count across runs; `AvgConnectivity`
+stores the mean across completed runs (excluding execution failures and timeouts).
+
 All plot functions accept `tex = FALSE` by default. With `tex = FALSE`, labels
 are plain text such as `10^2`, `%`, and `(P)`. Pass `tex = TRUE` when rendering
 through TikZ/LaTeX and you want labels such as `$10^2$`, `\\%`, or symbolic
@@ -34,13 +55,40 @@ Performance profile over at least two algorithms. Each curve shows the fraction
 of common instances solved within a ratio of the best objective.
 
 Required columns default to `Algorithm`, `AvgCut`, `Timeout`, `Imbalanced`,
-`Failed`, and primary key `Graph`, `K`. Key arguments: `segments`,
-`segment.errors.width`, `label.timeout`, `label.imbalanced`, `label.failed`,
-`colors`, `levels`, `axis.y.sparse_labels`, `plot.xlab`, `plot.ylab`,
-`legend.title`, `tex`.
+`Failed`, and primary key `Graph`, `K`. Optional `FailedConnectivity` defaults
+to false for legacy normalized inputs. The normal profile adds connectivity
+violations at **C**, then the remaining imbalance violations at **I**, followed
+by **T** (timeout) and **F** (execution failure). Connectivity takes precedence
+when both constraints are violated. Key arguments include `segments`,
+`segment.errors.width`, `column.connectivity`, `label.connectivity`,
+`label.timeout`, `label.imbalanced`, `label.failed`, `colors`, `levels`,
+`axis.y.sparse_labels`, `plot.xlab`, `plot.ylab`, `legend.title`, and `tex`.
 
-`create_performance_profile_data(...)` returns sampled profile data for callers
-that want to build their own plot.
+`create_performance_profile_data(...)` returns sampled profile data with the
+same category thresholds.
+
+### `create_connectivity_performance_profile_plot(...)`
+
+The expanded variant replaces C with a linear scale of average extra components.
+The scale ends at the next regular component tick at or above the largest value,
+with that tick labeled below the end boundary.
+At value x, the curve includes feasible instances plus connectivity violations
+with `AvgConnectivity <= x`. Instances also violating imbalance are counted in
+this section; the remaining imbalance violations are added at I.
+
+It accepts the normal profile options plus `segment.connectivity.width`
+(default 4), `segment.connectivity.gap` (default 1, an unmeasured horizontal gap
+before C: 0), and `column.components` (default `AvgConnectivity`). Connectivity
+violations require finite nonnegative severity values. `test.R` writes the normal
+profile, expanded profile, and imbalance-only profile as separate pages in the same PDF.
+
+### `create_imbalance_performance_profile_plot(...)`
+
+Ignores connectivity and compares cuts using imbalance-valid completed runs.
+Only **I** (imbalance violation) and **F** (timeout OR execution failure) appear.
+Instances violating both connectivity and imbalance still count at I. The loader
+provides `AvgCutWithoutConnectivity` and `ImbalancedWithoutConnectivity` for this
+version; other options match the normal profile.
 
 ### `create_running_time_box_plot(...)`
 

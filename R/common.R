@@ -23,10 +23,12 @@ PDF_OUTPUT <- env_or_default("MKEXP2_PLOTS_PDF_DIR", ".")
 
 PDF_LABEL_TIMEOUT <- "T"
 PDF_LABEL_IMBALANCED <- "I"
+PDF_LABEL_CONNECTIVITY <- "C"
 PDF_LABEL_FAILED <- "F"
 
 TEX_LABEL_TIMEOUT <- "\\SymbTimeout"
 TEX_LABEL_IMBALANCED <- "\\SymbImbalanced"
+TEX_LABEL_CONNECTIVITY <- "\\mathrm{C}"
 TEX_LABEL_FAILED <- "\\SymbFailed"
 
 plot_label <- function(tex, tex_label, plain_label) {
@@ -71,6 +73,15 @@ scalability_aggregator <- function(df) {
         AvgTimeUncoarsening = ifelse(all(is.na(df$TimeUncoarsening)), NA, mean(df$TimeUncoarsening, na.rm = TRUE)),
         AvgTimeInitialPartitioning = ifelse(all(is.na(df$TimeInitialPartitioning)), NA, mean(df$TimeInitialPartitioning, na.rm = TRUE)),
         Timeout = all(df$Timeout),
+        FailedConnectivity = all(df$FailedConnectivity),
+        FailedImbalance = all(df$FailedConnectivity | df$FailedImbalance) &
+            !all(df$FailedConnectivity),
+        AvgCutWithoutConnectivity = ifelse(
+            all(is.na(df$RealCut[!df$FailedImbalance])), Inf,
+            mean(df$RealCut[!df$FailedImbalance], na.rm = TRUE)),
+        Connectivity = min(df$Connectivity),
+        AvgConnectivity = ifelse(all(df$Failed | df$Timeout), NA_real_,
+            mean(df$Connectivity[!df$Failed & !df$Timeout])),
         Failed = all(df$Failed)
     )
 }
@@ -90,6 +101,15 @@ default_aggregator <- function(df) {
         AvgTime = ifelse(all(is.na(df$Time)), NA, mean(df$Time, na.rm = TRUE)),
         MaxTime = ifelse(all(is.na(df$Time)), NA, max(df$Time, na.rm = TRUE)),
         Timeout = all(df$Timeout),
+        FailedConnectivity = all(df$FailedConnectivity),
+        FailedImbalance = all(df$FailedConnectivity | df$FailedImbalance) &
+            !all(df$FailedConnectivity),
+        AvgCutWithoutConnectivity = ifelse(
+            all(is.na(df$RealCut[!df$FailedImbalance])), Inf,
+            mean(df$RealCut[!df$FailedImbalance], na.rm = TRUE)),
+        Connectivity = min(df$Connectivity),
+        AvgConnectivity = ifelse(all(df$Failed | df$Timeout), NA_real_,
+            mean(df$Connectivity[!df$Failed & !df$Timeout])),
         Failed = all(df$Failed)
     )
 }
@@ -143,12 +163,13 @@ mem_aggregator <- \(df) {
 
 treat_imbalanced_as_balanced <- \(df) df %>%
     dplyr::mutate(
-        MinCut = MinRealCut,
-        AvgCut = AvgRealCut,
-        MaxCut = MaxRealCut,
+        MinCut = ifelse(FailedConnectivity, NA, MinRealCut),
+        AvgCut = ifelse(FailedConnectivity, Inf, AvgRealCut),
+        MaxCut = ifelse(FailedConnectivity, NA, MaxRealCut),
         Imbalanced = FALSE,
-        Infeasible = FALSE,
-        Feasible = !Failed & !Timeout
+        FailedImbalance = FALSE,
+        Infeasible = FailedConnectivity,
+        Feasible = !Failed & !Timeout & !FailedConnectivity
     )
 
 hierarchy_level_aggregator <- function(df) {
@@ -198,6 +219,28 @@ dist_normalizer <- \(
     )
 }
 
+# Constraint failures are independent of execution failures (Failed).
+# Missing connectivity information preserves the legacy assumption of connectivity.
+normalize_constraint_flags <- function(df) {
+    flag <- function(x, column) {
+        if (anyNA(x) || !all(x %in% c(0, 1, FALSE, TRUE))) {
+            stop(column, " must contain only 0/1 or FALSE/TRUE values")
+        }
+        as.logical(as.integer(x))
+    }
+    if (!"Connectivity" %in% names(df)) df$Connectivity <- 0L
+    if (!is.numeric(df$Connectivity) || anyNA(df$Connectivity) ||
+        any(!is.finite(df$Connectivity) | df$Connectivity < 0)) {
+        stop("Connectivity must contain finite nonnegative numbers of unnecessary components")
+    }
+    if (!"FailedConnectivity" %in% names(df)) df$FailedConnectivity <- FALSE
+    if (!"FailedImbalance" %in% names(df)) df$FailedImbalance <- FALSE
+    df$FailedConnectivity <- flag(df$FailedConnectivity, "FailedConnectivity") | (df$Connectivity > 0)
+    df$FailedImbalance <- flag(df$FailedImbalance, "FailedImbalance") |
+        (!is.na(df$Imbalance) & df$Imbalance > df$Epsilon + .Machine$double.eps)
+    df
+}
+
 default_normalizer <- \(
     df, 
     aggregator = default_aggregator, 
@@ -206,22 +249,26 @@ default_normalizer <- \(
     aggregate.pre = identity,
     aggregate.post = identity
 ) {
-    df %>%
+    normalize_constraint_flags(df) %>%
         dplyr::mutate(Graph = sub("\\.metis|\\.bgf|\\.mtx|\\.mtx.hgr|\\.hgr|\\.graph|\\.scotch", "", Graph)) %>%
         dplyr::mutate(Failed = ifelse(Failed == "1", TRUE, FALSE)) %>%
         dplyr::mutate(Timeout = ifelse(Timeout == "1", TRUE, FALSE)) %>%
         dplyr::mutate(Imbalance = ifelse(Failed | Timeout, NA, Imbalance)) %>%
         dplyr::mutate(Time = ifelse(Timeout, timelimit, ifelse(Failed, NA, Time))) %>%
         dplyr::mutate(RealCut = ifelse(Failed | Timeout, NA, Cut)) %>%
-        dplyr::mutate(Cut = ifelse(Failed | Timeout | (Imbalance > Epsilon + .Machine$double.eps), NA, Cut)) %>%
+        dplyr::mutate(Cut = ifelse(Failed | Timeout | (FailedConnectivity | FailedImbalance), NA, Cut)) %>%
         aggregate.pre() %>%
         plyr::ddply(by, aggregator) %>%
         aggregate.post() %>%
         dplyr::mutate(AvgCut = ifelse(is.na(AvgCut), Inf, AvgCut)) %>%
         dplyr::mutate(AvgRealCut = ifelse(is.na(AvgRealCut), Inf, AvgRealCut)) %>%
         dplyr::mutate(Infeasible = !Failed & !Timeout & (AvgCut == Inf)) %>%
-        dplyr::mutate(Imbalanced = !Failed & !Timeout & (AvgCut == Inf)) %>%
-        dplyr::mutate(Feasible = !Failed & !Timeout & !Infeasible)
+        dplyr::mutate(FailedConnectivity = !Failed & !Timeout & (AvgCut == Inf) & FailedConnectivity) %>%
+        dplyr::mutate(Imbalanced = !Failed & !Timeout & (AvgCut == Inf) & !FailedConnectivity,
+                      FailedImbalance = Imbalanced) %>%
+        dplyr::mutate(Feasible = !Failed & !Timeout & !Infeasible,
+                      ImbalancedWithoutConnectivity = !Failed & !Timeout &
+                          is.infinite(AvgCutWithoutConnectivity))
 }
 
 default_hypergraph_normalizer <- \(
@@ -232,16 +279,16 @@ default_hypergraph_normalizer <- \(
     aggregate.pre = identity,
     aggregate.post = identity
 ) {
-    df %>%
+    normalize_constraint_flags(df) %>%
         dplyr::mutate(Hypergraph = sub("\\.zoltan.hg|\\.metis|\\.bgf|\\.mtx|\\.mtx.hgr|\\.hgr|\\.graph|\\.scotch", "", Hypergraph)) %>%
         dplyr::mutate(Failed = ifelse(Failed == "1", TRUE, FALSE)) %>%
         dplyr::mutate(Timeout = ifelse(Timeout == "1", TRUE, FALSE)) %>%
         dplyr::mutate(Imbalance = ifelse(Failed | Timeout, NA, Imbalance)) %>%
         dplyr::mutate(Time = ifelse(Timeout, timelimit, ifelse(Failed, NA, Time))) %>%
         dplyr::mutate(RealCut = ifelse(Failed | Timeout, NA, Cut)) %>%
-        dplyr::mutate(Cut = ifelse(Failed | Timeout | (Imbalance > Epsilon + .Machine$double.eps), NA, Cut)) %>%
+        dplyr::mutate(Cut = ifelse(Failed | Timeout | (FailedConnectivity | FailedImbalance), NA, Cut)) %>%
         dplyr::mutate(RealKM1 = ifelse(Failed | Timeout, NA, Cut)) %>%
-        dplyr::mutate(KM1 = ifelse(Failed | Timeout | (Imbalance > Epsilon + .Machine$double.eps), NA, KM1)) %>%
+        dplyr::mutate(KM1 = ifelse(Failed | Timeout | (FailedConnectivity | FailedImbalance), NA, KM1)) %>%
         # set ObjVal to cut or km1 depending on the objective function df$Objective
         dplyr::mutate(ObjVal = ifelse(Objective == "cut", Cut, ifelse(Objective == "km1", KM1, NA))) %>%
         aggregate.pre() %>%
@@ -254,8 +301,12 @@ default_hypergraph_normalizer <- \(
         dplyr::mutate(AvgObjVal = ifelse(is.na(AvgObjVal), Inf, AvgObjVal)) %>%
         dplyr::mutate(AvgRealObjVal = ifelse(is.na(AvgRealObjVal), Inf, AvgRealObjVal)) %>%
         dplyr::mutate(Infeasible = !Failed & !Timeout & (AvgObjVal == Inf)) %>%
-        dplyr::mutate(Imbalanced = !Failed & !Timeout & (AvgObjVal == Inf)) %>%
-        dplyr::mutate(Feasible = !Failed & !Timeout & !Infeasible)
+        dplyr::mutate(FailedConnectivity = !Failed & !Timeout & (AvgObjVal == Inf) & FailedConnectivity) %>%
+        dplyr::mutate(Imbalanced = !Failed & !Timeout & (AvgObjVal == Inf) & !FailedConnectivity,
+                      FailedImbalance = Imbalanced) %>%
+        dplyr::mutate(Feasible = !Failed & !Timeout & !Infeasible,
+                      ImbalancedWithoutConnectivity = !Failed & !Timeout &
+                          is.infinite(AvgCutWithoutConnectivity))
 }
 
 load_dataset <- \(
@@ -276,7 +327,7 @@ load_dataset <- \(
     } else {
         real_filename <- paste0(DATA_INPUT_DIR, "/", filename, ".csv")
     }
-    cache_filename <- paste0(CACHE_DIR, "/", gsub("[^A-Za-z0-9_.-]", "_", paste(name, normalizePath(real_filename, mustWork = FALSE), sep = "__")), ".cached.csv")
+    cache_filename <- paste0(CACHE_DIR, "/", gsub("[^A-Za-z0-9_.-]", "_", paste(name, normalizePath(real_filename, mustWork = FALSE), sep = "__")), ".constraints-v4.cached.csv")
     df <- data.frame()
 
     if (cache && file.exists(cache_filename)) {
@@ -367,7 +418,7 @@ load_hypergraph_dataset <- \(
     eps_offset = 0,
     cache = TRUE) {
     real_filename <- paste0(DATA_INPUT_DIR, "/", filename, ".csv")
-    cache_filename <- paste0(CACHE_DIR, "/", gsub("/", "_", filename), ".cached.csv")
+    cache_filename <- paste0(CACHE_DIR, "/", gsub("/", "_", filename), ".constraints-v4.cached.csv")
     df <- data.frame()
 
     if (cache && file.exists(cache_filename)) {
