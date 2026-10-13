@@ -94,4 +94,22 @@ empty_axis <- ggplot2::ggplot_build(empty_categories)$layout$panel_params[[1]]$x
 stopifnot(all(c('I', 'F') %in% empty_axis$get_labels()),
           identical(tail(empty_categories$scales$scales[[1]]$breaks, 2),
                     c(c_start + 1.5/4, c_start + 1.5/2)))
+# Different K values have independent baselines and denominators.
+k8a <- third[1:2, ]; k8b <- k8a; k8b$Algorithm <- 'b'
+k32a <- k8a; k32a$K <- 32; k32a$AvgCutWithoutConnectivity <- 100
+k32b <- k8b; k32b$K <- 32; k32b$AvgCutWithoutConnectivity <- 200
+for (profile_function in list(create_performance_profile_plot,
+    create_connectivity_performance_profile_plot, create_imbalance_performance_profile_plot)) {
+    plots <- profile_function(k8a, k8b, k32a, k32b)
+    stopifnot(identical(names(plots), c('8','32')),
+              plots[['8']]$labels$subtitle == 'K = 8')
+}
+profiles <- create_imbalance_performance_profile_plot(rbind(k8a,k32a), rbind(k8b,k32b))
+stopifnot(all(profiles[['8']]$data$Ratio == 0),
+          all(profiles[['32']]$data$Ratio[profiles[['32']]$data$Algorithm == 'a'] == 0),
+          all(profiles[['32']]$data$Ratio[profiles[['32']]$data$Algorithm == 'b'] > 0))
+single <- suppressWarnings(create_performance_profile_plot(k8a,k8b,k32a))
+stopifnot(inherits(single,'ggplot'), single$labels$subtitle == 'K = 8')
+stopifnot(inherits(try(suppressWarnings(create_performance_profile_plot(k8a,k32a)),
+                     silent=TRUE), 'try-error'))
 cat('Connectivity profile checks passed\n')

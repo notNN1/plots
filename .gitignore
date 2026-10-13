@@ -8,4 +8,4 @@ tex/figures/*
 !tex/figures/cache/.keepdir
 .cache/
 .cache-native/
-
+data/*

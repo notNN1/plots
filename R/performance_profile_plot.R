@@ -428,14 +428,44 @@ create_performance_profile_data <- function(
     return(plot)
 }
 
+# Split each input by K before comparing algorithms. Keep the single-K API.
+.create_profiles_by_k <- function(...) {
+    args <- list(...)
+    is_dataset <- vapply(args, is.data.frame, logical(1))
+    datasets <- args[is_dataset]
+    options <- args[!is_dataset]
+    if (!length(datasets)) stop("Supply at least two datasets.")
+    for (df in datasets) {
+        if (!"K" %in% names(df) || anyNA(df$K) || !nrow(df)) {
+            stop("Each dataset must contain nonempty, nonmissing K values.")
+        }
+    }
+    ks <- sort(unique(unlist(lapply(datasets, function(df) df$K))))
+    plots <- list()
+    for (k in ks) {
+        group <- lapply(datasets, function(df) df[df$K == k, , drop = FALSE])
+        group <- group[vapply(group, nrow, integer(1)) > 0]
+        if (length(group) < 2) {
+            warning("Skipping K = ", k, ": need at least two datasets for comparison.", call. = FALSE)
+            next
+        }
+        plot <- do.call(.create_performance_profile_plot, c(unname(group), options)) +
+            ggplot2::labs(subtitle = paste("K =", k))
+        plots[[as.character(k)]] <- plot
+    }
+    if (!length(plots)) stop("No K has at least two datasets for comparison.")
+    if (length(plots) == 1) return(plots[[1]])
+    plots
+}
+
 # Standard performance profile with categorical C, I, T, F markers.
 create_performance_profile_plot <- function(...) {
-    .create_performance_profile_plot(..., connectivity.profile = FALSE)
+    .create_profiles_by_k(..., connectivity.profile = FALSE)
 }
 
 # Performance profile with a scale of average extra components in the C section.
 create_connectivity_performance_profile_plot <- function(...) {
-    .create_performance_profile_plot(..., connectivity.profile = TRUE)
+    .create_profiles_by_k(..., connectivity.profile = TRUE)
 }
 
 # Ignore connectivity; use I for imbalance and F for execution failure or timeout.
@@ -444,7 +474,7 @@ create_imbalance_performance_profile_plot <- function(
     column.objective = "AvgCutWithoutConnectivity",
     column.imbalanced = "ImbalancedWithoutConnectivity"
 ) {
-    .create_performance_profile_plot(
+    .create_profiles_by_k(
         ..., column.objective = column.objective, column.imbalanced = column.imbalanced,
         column.connectivity = ".IgnoredConnectivity", merge.failures = TRUE)
 }

@@ -36,13 +36,16 @@ set_tarjan <- load_datasets_from_folder("data/tarjan vs non tarjan")
 # set_st_bfs <- load_datasets_from_folder("data/st_bfs options")
 # set_st     <- load_datasets_from_folder("data/st options")
 
-pp_tarjan <- do.call(create_imbalance_performance_profile_plot, unname(set_tarjan)) +
-    ggplot2::labs(title = "Performance Profile") +
-    ggplot2::theme_bw() +
-    default_theme +
-    ggplot2::xlab("Ratio") +
-    ggplot2::ylab("Fraction of Instances") +
-    ggplot2::theme(legend.position = "bottom")
+pp_tarjan <- do.call(create_imbalance_performance_profile_plot, unname(set_tarjan))
+# A single K returns one plot; multiple K values return a named list of plots.
+if (inherits(pp_tarjan, "ggplot")) pp_tarjan <- list(pp_tarjan)
+pp_tarjan <- lapply(pp_tarjan, function(plot) {
+    plot +
+        ggplot2::labs(title = "Performance Profile", x = "Ratio", y = "Fraction of Instances") +
+        ggplot2::theme_bw() +
+        default_theme +
+        ggplot2::theme(legend.position = "bottom")
+})
 
 #pp_st_bfs <- do.call(create_performance_profile_plot, unname(set_st_bfs)) +
 #    ggplot2::labs(title = "Performance Profile") +
@@ -67,7 +70,7 @@ pp_tarjan <- do.call(create_imbalance_performance_profile_plot, unname(set_tarja
 #    ggplot2::theme(legend.position = "bottom")
 
 open_pdf("tests", width = 11)
-print(pp_tarjan)
+for (plot in pp_tarjan) print(plot)
 # print(pp_connectivity_tarjan)
 # print(pp_imbalance_tarjan)
 dev_off()

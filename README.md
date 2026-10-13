@@ -49,6 +49,14 @@ Most comparison plots take normalized matrix/result data frames through `...`.
 The normal entry point for turning raw mkexp2 CSVs into those data frames is
 `load_dataset()` from `R/common.R`.
 
+All three performance-profile plot functions split input datasets by the CSV's
+`K` column. Each K is compared independently and needs at least two datasets;
+undersupplied K values are skipped with a warning. If none qualify, plotting stops
+with an error. Graph keys must still match within each K. A single qualifying K
+returns one ggplot; multiple K values return a named list of ggplots, one per K.
+`test.R` prints each qualifying K on its own PDF page. Datasets containing several
+K values are supported too.
+
 ### `create_performance_profile_plot(...)`
 
 Performance profile over at least two algorithms. Each curve shows the fraction
