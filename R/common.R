@@ -271,6 +271,18 @@ default_normalizer <- \(
                           is.infinite(AvgCutWithoutConnectivity))
 }
 
+# Use the graph constraint/repeat handling with CSV Km1 as objective.
+default_km1_normalizer <- function(df, ...) {
+    if (!"Km1" %in% names(df) || !is.numeric(df$Km1)) {
+        stop("KM1 profiles require a numeric 'Km1' column in every CSV.")
+    }
+    df$Cut <- df$Km1
+    result <- default_normalizer(df, ...)
+    result$AvgKM1 <- result$AvgCut
+    result$AvgKM1WithoutConnectivity <- result$AvgCutWithoutConnectivity
+    result
+}
+
 default_hypergraph_normalizer <- \(
     df, 
     aggregator = default_hypergraph_aggregator, 

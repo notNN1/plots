@@ -50,8 +50,8 @@ c_start <- sum(vapply(default_performance_profile_segments, function(x) x$width,
 gap <- profile[profile$Ratio %in% c(c_start, c_start + 1), ]
 stopifnot(nrow(gap) == 2, all(gap$Fraction == 1/6))
 components <- profile[profile$Ratio > c_start + 1, ]
-stopifnot(abs(components$Ratio[1] - (c_start + 1 + 4 * .25 / 1.5)) < 1e-8,
-          abs(components$Ratio[2] - (c_start + 1 + 4)) < 1e-8,
+stopifnot(abs(components$Ratio[1] - (c_start + 1 + 4 * .25 / 10)) < 1e-8,
+          abs(components$Ratio[2] - (c_start + 1 + 4 * 1.5 / 10)) < 1e-8,
           components$Fraction[1] == 2/6, components$Fraction[2] == 3/6,
           components$Fraction[3] == 4/6)
 repeats$Connectivity <- c(.25, 1.5)
@@ -83,10 +83,10 @@ snapped$AvgConnectivity[4] <- 1.6
 snapped_b <- snapped; snapped_b$Algorithm <- 'b'
 snapped_plot <- create_connectivity_performance_profile_plot(snapped, snapped_b)
 axis <- snapped_plot$scales$scales[[1]]
-stopifnot(tail(axis$labels, 4)[1] == '2.0',
-          tail(axis$breaks, 4)[1] == c_start + 1 + 4)
+stopifnot(tail(axis$labels, 5)[1] == '10',
+          tail(axis$breaks, 5)[1] == c_start + 1 + 4)
 snapped_curve <- snapped_plot$data[snapped_plot$data$Algorithm == 'a', ]
-stopifnot(any(abs(snapped_curve$Ratio - (c_start + 1 + 4 * 1.6 / 2)) < 1e-8))
+stopifnot(any(abs(snapped_curve$Ratio - (c_start + 1 + 4 * 1.6 / 10)) < 1e-8))
 # Keep I and F visible even if no instances populate either category.
 only_valid <- third[1:2, ]; only_valid_b <- only_valid; only_valid_b$Algorithm <- 'b'
 empty_categories <- create_imbalance_performance_profile_plot(only_valid, only_valid_b)
@@ -113,3 +113,36 @@ stopifnot(inherits(single,'ggplot'), single$labels$subtitle == 'K = 8')
 stopifnot(inherits(try(suppressWarnings(create_performance_profile_plot(k8a,k32a)),
                      silent=TRUE), 'try-error'))
 cat('Connectivity profile checks passed\n')
+
+# Expanded imbalance uses a fixed epsilon-relative scale and an overflow marker.
+severity <- third
+severity$AvgImbalance[3:4] <- c(.06, .10)
+severity_b <- severity; severity_b$Algorithm <- 'b'
+expanded <- create_expanded_imbalance_performance_profile_plot(severity, severity_b)
+axis <- expanded$scales$scales[[1]]
+stopifnot(is.expression(axis$labels), tail(as.list(axis$labels), 1)[[1]] == 'F')
+curve <- expanded$data[expanded$data$Algorithm == 'a', ]
+stopifnot(any(abs(curve$Ratio - (c_start + 1 + 4 * .5)) < 1e-7 & curve$Fraction == 3/6),
+          any(abs(curve$Ratio - (c_start + 1 + 4 + .75)) < 1e-7 & curve$Fraction == 4/6),
+          tail(curve$Fraction, 1) == 1)
+invisible(ggplot2::ggplot_build(expanded))
+severity$AvgImbalance[3] <- NA_real_
+stopifnot(inherits(try(create_expanded_imbalance_performance_profile_plot(severity, severity_b),
+                      silent=TRUE), 'try-error'))
+
+stopifnot(identical(as.list(axis$labels)[[length(axis$labels) - 1L]],
+                    quote(">" * 3 * epsilon)))
+severity$AvgImbalance[3:4] <- c(.09, .09)
+boundary <- create_expanded_imbalance_performance_profile_plot(severity, severity_b)
+stopifnot(any(abs(boundary$data$Ratio - (c_start + 1 + 4)) < 1e-7 &
+              boundary$data$Algorithm == 'a' & boundary$data$Fraction == 4/6))
+
+# Extra-component severity stops at ten; larger counts use a separate marker.
+cap <- third
+cap$AvgConnectivity[2:4] <- c(10, 0, 11)
+cap_b <- cap; cap_b$Algorithm <- 'b'
+capped <- create_connectivity_performance_profile_plot(cap, cap_b)
+stopifnot(identical(tail(capped$scales$scales[[1]]$labels, 4), c('> 10 C','I','T','F')))
+cap_curve <- capped$data[capped$data$Algorithm == 'a', ]
+stopifnot(any(abs(cap_curve$Ratio - (c_start + 1 + 4)) < 1e-7 & cap_curve$Fraction == 2/6),
+          any(abs(cap_curve$Ratio - (c_start + 1 + 4 + 3/4)) < 1e-7 & cap_curve$Fraction == 3/6))

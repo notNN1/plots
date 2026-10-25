@@ -36,6 +36,7 @@ performance_profile_segments_nolog <- list(
 
 PP_RATIO_FEASIBLE <- 100000
 PP_RATIO_CONNECTIVITY <- 500000
+PP_RATIO_COMPONENT_OVERFLOW <- 750000
 PP_RATIO_IMBALANCED <- 1000000
 PP_RATIO_TIMEOUT <- 2000000
 PP_RATIO_FAILED <- 3000000
@@ -143,6 +144,9 @@ create_performance_profile_data <- function(
     column.failed = "Failed",
     column.connectivity = "FailedConnectivity",
     connectivity.profile = FALSE,
+    imbalance.profile = FALSE,
+    column.imbalance = "AvgImbalance",
+    column.epsilon = "Epsilon",
     merge.failures = FALSE,
     column.components = "AvgConnectivity",
     segment.connectivity.width = 4,
@@ -171,6 +175,35 @@ create_performance_profile_data <- function(
         cli::cli_abort("Need at least two data frames for plotting a performance profile.")
     }
 
+    if (imbalance.profile) {
+        # Reuse the expanded severity axis from epsilon through three times epsilon.
+        all_dfs <- lapply(all_dfs, function(df) {
+            active <- df[[column.imbalanced]] & !df[[column.failed]] & !df[[column.timeout]]
+            if (any(active)) {
+                for (column in c(column.imbalance, column.epsilon)) {
+                    if (!column %in% names(df) || !is.numeric(df[[column]]) ||
+                        any(!is.finite(df[[column]][active]))) {
+                        stop("Imbalance violations require finite numeric ", column, " values.")
+                    }
+                }
+            }
+            if (any(active) && any(df[[column.epsilon]][active] < 0)) {
+                stop("Imbalance thresholds must be nonnegative.")
+            }
+            overflow <- rep(FALSE, nrow(df))
+            overflow[active] <- df[[column.imbalance]][active] > 3 * df[[column.epsilon]][active]
+            within <- active & !overflow
+            df[[column.components]] <- 0
+            positive <- if (any(within)) within & df[[column.epsilon]] > 0 else rep(FALSE, nrow(df))
+            if (any(positive)) df[[column.components]][positive] <-
+                pmin(2, pmax(0, df[[column.imbalance]][positive] / df[[column.epsilon]][positive] - 1))
+            df[[column.connectivity]] <- within
+            df[[column.imbalanced]] <- overflow
+            df
+        })
+        label.connectivity <- label.imbalanced
+    }
+
     # Expand C into an absolute scale of average extra components.
     component_max <- 1
     if (connectivity.profile) {
@@ -188,10 +221,8 @@ create_performance_profile_data <- function(
             }
             values
         }))
-        component_max <- max(c(1, component_values))
-        component_breaks <- pretty(c(0, component_max), n = 4)
-        component_breaks <- component_breaks[component_breaks >= 0]
-        component_max <- max(component_breaks)
+        component_max <- if (imbalance.profile) 2 else 10
+        component_breaks <- if (imbalance.profile) seq(0, 2, by = .5) else seq(0, 10, by = 2)
         for (i in seq_along(all_dfs)) {
             if (!column.components %in% names(all_dfs[[i]])) all_dfs[[i]][[column.components]] <- 0
         }
@@ -253,8 +284,11 @@ create_performance_profile_data <- function(
             dplyr::mutate(Ratio = case_when(
                 df[[column.timeout]] ~ if (merge.failures) PP_RATIO_FAILED else PP_RATIO_TIMEOUT,
                 df[[column.failed]] ~ PP_RATIO_FAILED,
-                df[[column.connectivity]] ~ PP_RATIO_CONNECTIVITY +
-                    if (connectivity.profile) df[[column.components]] / component_max else 0,
+                df[[column.connectivity]] ~ if (connectivity.profile) {
+                    ifelse(df[[column.components]] > component_max,
+                        PP_RATIO_COMPONENT_OVERFLOW,
+                        PP_RATIO_CONNECTIVITY + df[[column.components]] / component_max)
+                } else PP_RATIO_CONNECTIVITY,
                 df[[column.imbalanced]] ~ PP_RATIO_IMBALANCED,
                 TRUE ~ Ratio
             )) %>%
@@ -302,10 +336,11 @@ create_performance_profile_data <- function(
     # Map errors (connectivity, imbalance, timeout, failure)
     map_errors <- function(vals) {
         purrr::map_int(vals, ~ case_when(
-            .x == PP_RATIO_IMBALANCED ~ 1,
-            .x == PP_RATIO_TIMEOUT ~ 2,
-            .x == PP_RATIO_FAILED ~ 3,
-            .x == Inf ~ 3,
+            .x == PP_RATIO_COMPONENT_OVERFLOW ~ 1,
+            .x == PP_RATIO_IMBALANCED ~ if (imbalance.profile) 1L else 2L,
+            .x == PP_RATIO_TIMEOUT ~ if (imbalance.profile) 2L else 3L,
+            .x == PP_RATIO_FAILED ~ if (imbalance.profile) 3L else 4L,
+            .x == Inf ~ if (imbalance.profile) 3L else 4L,
             TRUE ~ 0
         ))
     }
@@ -318,7 +353,7 @@ create_performance_profile_data <- function(
                     Ratio >= PP_RATIO_CONNECTIVITY & Ratio <= PP_RATIO_CONNECTIVITY + 1,
                     segment.connectivity.gap + segment.connectivity.width * (Ratio - PP_RATIO_CONNECTIVITY),
                     ifelse(map_errors(Ratio) > 0, segment.connectivity.gap + segment.connectivity.width +
-                        segment.errors.width * map_errors(Ratio) / 3, 0)
+                        segment.errors.width * (if (imbalance.profile) ifelse(Ratio == PP_RATIO_IMBALANCED, .5, 1) else map_errors(Ratio) / 4), 0)
                 ),
                 Ratio
             )) %>%
@@ -372,10 +407,15 @@ create_performance_profile_data <- function(
     if (connectivity.profile) {
         x_breaks <- c(x_breaks,
             offset + segment.connectivity.gap + segment.connectivity.width * component_breaks / component_max,
-            offset + segment.connectivity.gap + segment.connectivity.width + segment.errors.width * c(1/3, 2/3, 1))
+            offset + segment.connectivity.gap + segment.connectivity.width + segment.errors.width * (if (imbalance.profile) c(.5, 1) else c(1/4, 2/4, 3/4, 1)))
         component_labels <- format(signif(component_breaks, 3), trim = TRUE)
+        if (imbalance.profile) {
+            component_labels <- paste0(format(component_breaks + 1, trim = TRUE),
+                if (tex) "$\\epsilon$" else "ε")
+        }
         component_labels[1] <- paste0(label.connectivity, ": ", component_labels[1])
-        x_labels <- c(x_labels, component_labels, label.imbalanced, label.timeout, label.failed)
+        x_labels <- c(x_labels, component_labels,
+            if (imbalance.profile) c(if (tex) "$>3\\epsilon$" else "> 3", label.failed) else c("> 10 C", label.imbalanced, label.timeout, label.failed))
 
     } else if (merge.failures) {
         x_breaks <- c(x_breaks, offset + segment.errors.width * c(1/4, 2/4))
@@ -383,6 +423,22 @@ create_performance_profile_data <- function(
     } else {
         x_breaks <- c(x_breaks, offset + segment.errors.width * c(1/4, 2/4, 3/4, 1))
         x_labels <- c(x_labels, label.connectivity, label.imbalanced, label.timeout, label.failed)
+    }
+
+    if (imbalance.profile && !tex) {
+        # Plotmath draws epsilon using the graphics device's symbol font.
+        labels <- as.list(x_labels)
+        start <- length(labels) - length(component_breaks) - 1L
+        for (i in seq_along(component_breaks)) {
+            value <- component_breaks[i] + 1
+            labels[[start + i - 1L]] <- if (i == 1L) {
+                bquote(.(paste0(label.imbalanced, ": ")) * .(value) * epsilon)
+            } else {
+                bquote(.(value) * epsilon)
+            }
+        }
+        labels[[length(labels) - 1L]] <- quote(">" * 3 * epsilon)
+        x_labels <- as.expression(labels)
     }
 
     # Draw plot
@@ -464,8 +520,9 @@ create_performance_profile_plot <- function(...) {
 }
 
 # Performance profile with a scale of average extra components in the C section.
-create_connectivity_performance_profile_plot <- function(...) {
-    .create_profiles_by_k(..., connectivity.profile = TRUE)
+create_connectivity_performance_profile_plot <- function(..., segment.errors.width = 3) {
+    .create_profiles_by_k(..., connectivity.profile = TRUE,
+        segment.errors.width = segment.errors.width)
 }
 
 # Ignore connectivity; use I for imbalance and F for execution failure or timeout.
@@ -477,4 +534,23 @@ create_imbalance_performance_profile_plot <- function(
     .create_profiles_by_k(
         ..., column.objective = column.objective, column.imbalanced = column.imbalanced,
         column.connectivity = ".IgnoredConnectivity", merge.failures = TRUE)
+}
+
+# Ignore connectivity and expand I from epsilon to three times epsilon.
+create_expanded_imbalance_performance_profile_plot <- function(
+    ...,
+    column.objective = "AvgCutWithoutConnectivity",
+    column.imbalanced = "ImbalancedWithoutConnectivity",
+    column.imbalance = "AvgImbalance",
+    column.epsilon = "Epsilon",
+    segment.imbalance.width = 4,
+    segment.imbalance.gap = 1
+) {
+    .create_profiles_by_k(
+        ..., column.objective = column.objective, column.imbalanced = column.imbalanced,
+        column.imbalance = column.imbalance, column.epsilon = column.epsilon,
+        column.connectivity = ".ImbalanceSeverity", column.components = ".ExcessImbalance",
+        connectivity.profile = TRUE, imbalance.profile = TRUE, merge.failures = TRUE,
+        segment.connectivity.width = segment.imbalance.width,
+        segment.connectivity.gap = segment.imbalance.gap)
 }

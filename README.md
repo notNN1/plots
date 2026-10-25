@@ -49,7 +49,7 @@ Most comparison plots take normalized matrix/result data frames through `...`.
 The normal entry point for turning raw mkexp2 CSVs into those data frames is
 `load_dataset()` from `R/common.R`.
 
-All three performance-profile plot functions split input datasets by the CSV's
+All performance-profile plot functions split input datasets by the CSV's
 `K` column. Each K is compared independently and needs at least two datasets;
 undersupplied K values are skipped with a warning. If none qualify, plotting stops
 with an error. Graph keys must still match within each K. A single qualifying K
@@ -78,12 +78,13 @@ same category thresholds.
 ### `create_connectivity_performance_profile_plot(...)`
 
 The expanded variant replaces C with a linear scale of average extra components.
-The scale ends at the next regular component tick at or above the largest value,
-with that tick labeled below the end boundary.
+The scale runs from 0 to 10 extra components. Larger values are counted at a
+separate **> 10 C** marker, followed by I, T, and F.
 At value x, the curve includes feasible instances plus connectivity violations
 with `AvgConnectivity <= x`. Instances also violating imbalance are counted in
 this section; the remaining imbalance violations are added at I.
 
+It reserves `segment.errors.width = 3` for the overflow and error labels.
 It accepts the normal profile options plus `segment.connectivity.width`
 (default 4), `segment.connectivity.gap` (default 1, an unmeasured horizontal gap
 before C: 0), and `column.components` (default `AvgConnectivity`). Connectivity
@@ -97,6 +98,22 @@ Only **I** (imbalance violation) and **F** (timeout OR execution failure) appear
 Instances violating both connectivity and imbalance still count at I. The loader
 provides `AvgCutWithoutConnectivity` and `ImbalancedWithoutConnectivity` for this
 version; other options match the normal profile.
+
+### `create_expanded_imbalance_performance_profile_plot(...)`
+
+Adds an expanded I scale to the imbalance-only profile, ignoring connectivity.
+The scale runs from 1 to 3 times each instance's allowed imbalance (`Epsilon`).
+For example, average imbalance 0.06 with epsilon 0.03 appears at 2 epsilon.
+Violations above 3 epsilon appear at a separate **I>3 epsilon** marker after
+this scale; timeouts and execution failures still appear at **F**.
+Explicit violation flags below epsilon appear at the start of the I scale.
+
+Like the extra-components profile, the scale has a gap before zero and ends at exactly
+3 epsilon. Options include `column.imbalance`
+(default `AvgImbalance`), `column.epsilon` (default `Epsilon`),
+`segment.imbalance.width` (4), and `segment.imbalance.gap` (1).
+Active imbalance violations require finite numeric measurements and thresholds.
+`test.R` adds these profiles as separate PDF pages for each K.
 
 ### `create_running_time_box_plot(...)`
 
@@ -267,3 +284,9 @@ Legend utilities. `create_dummy_plot()` builds a plot that only carries an
 algorithm legend. `create_standalone_legend()` renders that legend to TikZ. Key
 arguments: `colors`, `levels`, `title`, `basename`, `nrow`, `position`,
 `suffix`, `tex`.
+
+`test.R` uses numeric `Km1` from each CSV for all three profiles.
+Its loader uses `default_km1_normalizer()`, exposing `AvgKM1` for the
+connectivity profile and `AvgKM1WithoutConnectivity` for profiles ignoring
+connectivity. The existing feasibility and repeated-run averaging rules apply.
+Every CSV in the loaded folders must include `Km1`; there is no cut fallback.

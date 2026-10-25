@@ -26,51 +26,58 @@ load_datasets_from_folder <- function(folder) {
 
     names <- tools::file_path_sans_ext(basename(files))
     datasets <- lapply(seq_along(files), function(i) {
-        load_dataset(filename = files[[i]], name = names[[i]], cache = FALSE)
+        load_dataset(filename = files[[i]], name = names[[i]], cache = FALSE,
+                     normalizer = default_km1_normalizer)
     })
     setNames(datasets, names)
 }
 
 # Change this folder to load a different set of CSV files.
-set_tarjan <- load_datasets_from_folder("data/tarjan vs non tarjan")
+# set_tarjan      <- load_datasets_from_folder("data/tarjan vs non tarjan")
+set_tarjan_obo  <- load_datasets_from_folder("data/tarjan one by one")
 # set_st_bfs <- load_datasets_from_folder("data/st_bfs options")
 # set_st     <- load_datasets_from_folder("data/st options")
 
-pp_tarjan <- do.call(create_imbalance_performance_profile_plot, unname(set_tarjan))
-# A single K returns one plot; multiple K values return a named list of plots.
-if (inherits(pp_tarjan, "ggplot")) pp_tarjan <- list(pp_tarjan)
-pp_tarjan <- lapply(pp_tarjan, function(plot) {
+test_set <- set_tarjan_obo
+
+pp <- do.call(create_imbalance_performance_profile_plot,
+    c(unname(test_set), list(column.objective = "AvgKM1WithoutConnectivity")))
+pp_imbalance <- do.call(create_expanded_imbalance_performance_profile_plot,
+    c(unname(test_set), list(column.objective = "AvgKM1WithoutConnectivity")))
+pp_connectivity <- do.call(create_connectivity_performance_profile_plot,
+    c(unname(test_set), list(column.objective = "AvgKM1")))
+
+# normal pp
+if (inherits(pp_imbalance, "ggplot")) pp_imbalance <- list(pp_imbalance)
+pp_imbalance <- lapply(pp_imbalance, function(plot) {
+    plot + ggplot2::labs(title = "Performance Profile with Imbalance Severity",
+        x = expression("KM1 Ratio / Imbalance (multiples of " * epsilon * ")"),
+        y = "Fraction of Instances") + ggplot2::theme_bw() + default_theme +
+        ggplot2::theme(legend.position = "bottom")
+})
+
+# Imbalance pp
+if (inherits(pp, "ggplot")) pp <- list(pp)
+pp <- lapply(pp, function(plot) {
     plot +
-        ggplot2::labs(title = "Performance Profile", x = "Ratio", y = "Fraction of Instances") +
+        ggplot2::labs(title = "Performance Profile", x = "KM1 Ratio", y = "Fraction of Instances") +
         ggplot2::theme_bw() +
         default_theme +
         ggplot2::theme(legend.position = "bottom")
 })
 
-#pp_st_bfs <- do.call(create_performance_profile_plot, unname(set_st_bfs)) +
-#    ggplot2::labs(title = "Performance Profile") +
-#    ggplot2::theme_bw() +
-#    default_theme +
-#    ggplot2::xlab("Ratio") +
-#    ggplot2::ylab("Fraction of Instances") +
-#    ggplot2::theme(legend.position = "bottom")
-
-#pp_connectivity_st_bfs <- do.call(create_connectivity_performance_profile_plot, unname(set_st_bfs)) +
-#    ggplot2::labs(title = "Performance Profile with Connectivity",
-#                  x = "Cut Ratio / Average Extra Components (C)", y = "Fraction of Instances") +
-#    ggplot2::theme_bw() +
-#    default_theme +
-#    ggplot2::theme(legend.position = "bottom")
-
-#pp_imbalance_st_bfs <- do.call(create_imbalance_performance_profile_plot, unname(set_st_bfs)) +
-#    ggplot2::labs(title = "Performance Profile Ignoring Connectivity",
-#                  x = "Ratio", y = "Fraction of Instances") +
-#    ggplot2::theme_bw() +
-#    default_theme +
-#    ggplot2::theme(legend.position = "bottom")
+# Connectivity pp
+if (inherits(pp_connectivity, "ggplot")) pp_connectivity <- list(pp_connectivity)
+pp_connectivity <- lapply(pp_connectivity, function(plot) {
+    plot + ggplot2::labs(title = "Performance Profile with Connectivity",
+        x = "KM1 Ratio / Average Extra Components (C)", y = "Fraction of Instances") +
+        ggplot2::theme_bw() + default_theme +
+        ggplot2::theme(legend.position = "bottom")
+})
 
 open_pdf("tests", width = 11)
-for (plot in pp_tarjan) print(plot)
-# print(pp_connectivity_tarjan)
+for (plot in pp) print(plot)
+for (plot in pp_imbalance) print(plot)
+for (plot in pp_connectivity) print(plot)
 # print(pp_imbalance_tarjan)
 dev_off()
