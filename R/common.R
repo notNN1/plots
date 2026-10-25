@@ -64,6 +64,10 @@ scalability_aggregator <- function(df) {
         MaxCut = ifelse(all(is.na(df$Cut)), NA, max(df$Cut, na.rm = TRUE)),
         MinImbalance = ifelse(all(is.na(df$Imbalance)), NA, min(df$Imbalance, na.rm = TRUE)),
         AvgImbalance = ifelse(all(is.na(df$Imbalance)), NA, mean(df$Imbalance, na.rm = TRUE)),
+        ImbalanceSuccessRate = if ("ImbalanceSuccessRate" %in% names(df))
+            mean(df$ImbalanceSuccessRate[!df$Failed & !df$Timeout]) else NA_real_,
+        ConnectivitySuccessRate = if ("ConnectivitySuccessRate" %in% names(df))
+            mean(df$ConnectivitySuccessRate[!df$Failed & !df$Timeout]) else NA_real_,
         MaxImbalance = ifelse(all(is.na(df$Imbalance)), NA, max(df$Imbalance, na.rm = TRUE)),
         MinTime = ifelse(all(is.na(df$Time)), NA, min(df$Time, na.rm = TRUE)),
         AvgTime = ifelse(all(is.na(df$Time)), NA, mean(df$Time, na.rm = TRUE)),
@@ -96,6 +100,10 @@ default_aggregator <- function(df) {
         MaxCut = ifelse(all(is.na(df$Cut)), NA, max(df$Cut, na.rm = TRUE)),
         MinImbalance = ifelse(all(is.na(df$Imbalance)), NA, min(df$Imbalance, na.rm = TRUE)),
         AvgImbalance = ifelse(all(is.na(df$Imbalance)), NA, mean(df$Imbalance, na.rm = TRUE)),
+        ImbalanceSuccessRate = if ("ImbalanceSuccessRate" %in% names(df))
+            mean(df$ImbalanceSuccessRate[!df$Failed & !df$Timeout]) else NA_real_,
+        ConnectivitySuccessRate = if ("ConnectivitySuccessRate" %in% names(df))
+            mean(df$ConnectivitySuccessRate[!df$Failed & !df$Timeout]) else NA_real_,
         MaxImbalance = ifelse(all(is.na(df$Imbalance)), NA, max(df$Imbalance, na.rm = TRUE)),
         MinTime = ifelse(all(is.na(df$Time)), NA, min(df$Time, na.rm = TRUE)),
         AvgTime = ifelse(all(is.na(df$Time)), NA, mean(df$Time, na.rm = TRUE)),
@@ -236,8 +244,16 @@ normalize_constraint_flags <- function(df) {
     if (!"FailedConnectivity" %in% names(df)) df$FailedConnectivity <- FALSE
     if (!"FailedImbalance" %in% names(df)) df$FailedImbalance <- FALSE
     df$FailedConnectivity <- flag(df$FailedConnectivity, "FailedConnectivity") | (df$Connectivity > 0)
-    df$FailedImbalance <- flag(df$FailedImbalance, "FailedImbalance") |
-        (!is.na(df$Imbalance) & df$Imbalance > df$Epsilon + .Machine$double.eps)
+    if ("ImbalanceSuccessRate" %in% names(df)) {
+        rate <- df$ImbalanceSuccessRate
+        if (!is.numeric(rate) || anyNA(rate) || any(!is.finite(rate) | rate < 0 | rate > 1)) {
+            stop("ImbalanceSuccessRate must contain finite numbers between 0 and 1")
+        }
+        df$FailedImbalance <- rate < .75
+    } else {
+        df$FailedImbalance <- flag(df$FailedImbalance, "FailedImbalance") |
+            (!is.na(df$Imbalance) & df$Imbalance > df$Epsilon + .Machine$double.eps)
+    }
     df
 }
 

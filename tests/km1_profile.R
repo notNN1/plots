@@ -2,9 +2,10 @@ source("R/common.R")
 source("R/performance_profile_plot.R")
 raw <- data.frame(Algorithm = "a", Graph = c("g", "g", "h"), K = 8,
     Epsilon = .03, Cores = 1, Cut = c(100, 100, 100), Km1 = c(10, 30, 40),
-    Time = 1, Imbalance = .01, Connectivity = c(0, 1, 0), Failed = 0, Timeout = 0)
+    Time = 1, Imbalance = .01, ImbalanceSuccessRate = 1, ConnectivitySuccessRate = c(1, 0, 1), Connectivity = c(0, 1, 0), Failed = 0, Timeout = 0)
 a <- default_km1_normalizer(raw)
-stopifnot(a$AvgKM1[1] == 10, a$AvgKM1WithoutConnectivity[1] == 20)
+stopifnot(a$AvgKM1[1] == 10, a$AvgKM1WithoutConnectivity[1] == 20,
+          a$ImbalanceSuccessRate[1] == 1, a$ConnectivitySuccessRate[1] == .5)
 b <- a; b$Algorithm <- "b"
 b$AvgKM1 <- 2 * a$AvgKM1
 b$AvgKM1WithoutConnectivity <- 2 * a$AvgKM1WithoutConnectivity

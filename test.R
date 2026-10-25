@@ -50,8 +50,8 @@ pp_connectivity <- do.call(create_connectivity_performance_profile_plot,
 # normal pp
 if (inherits(pp_imbalance, "ggplot")) pp_imbalance <- list(pp_imbalance)
 pp_imbalance <- lapply(pp_imbalance, function(plot) {
-    plot + ggplot2::labs(title = "Performance Profile with Imbalance Severity",
-        x = expression("KM1 Ratio / Imbalance (multiples of " * epsilon * ")"),
+    plot + ggplot2::labs(title = "Performance Profile with Imbalance Success Rate",
+        x = "KM1 Ratio / Imbalance Success Rate",
         y = "Fraction of Instances") + ggplot2::theme_bw() + default_theme +
         ggplot2::theme(legend.position = "bottom")
 })

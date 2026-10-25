@@ -102,17 +102,20 @@ version; other options match the normal profile.
 ### `create_expanded_imbalance_performance_profile_plot(...)`
 
 Adds an expanded I scale to the imbalance-only profile, ignoring connectivity.
-The scale runs from 1 to 3 times each instance's allowed imbalance (`Epsilon`).
-For example, average imbalance 0.06 with epsilon 0.03 appears at 2 epsilon.
-Violations above 3 epsilon appear at a separate **I>3 epsilon** marker after
-this scale; timeouts and execution failures still appear at **F**.
-Explicit violation flags below epsilon appear at the start of the I scale.
+It uses `ImbalanceSuccessRate` (a fraction between 0 and 1), with descending
+thresholds < 0.75, 0.50, 0.25, and 0.0. At threshold s the curve includes
+completed instances whose success rate is at least s. Instances with success rate at least 0.75 remain in the KM1-ratio section
+when otherwise feasible.
+Instances that never satisfy imbalance enter at 0.0. Timeouts and execution
+failures appear at F.
 
-Like the extra-components profile, the scale has a gap before zero and ends at exactly
-3 epsilon. Options include `column.imbalance`
-(default `AvgImbalance`), `column.epsilon` (default `Epsilon`),
+Options include `column.success.rate` (default `ImbalanceSuccessRate`),
 `segment.imbalance.width` (4), and `segment.imbalance.gap` (1).
-Active imbalance violations require finite numeric measurements and thresholds.
+The loader retains both success-rate columns, averaging completed repeats.
+When supplied, success rates below 0.75 determine imbalance violations for all
+profiles, overriding average imbalance and explicit imbalance flags. Exactly 0.75
+is accepted. Legacy CSVs without success rates retain their prior constraint rules.
+Missing success rates are not inferred from average imbalance or failure flags.
 `test.R` adds these profiles as separate PDF pages for each K.
 
 ### `create_running_time_box_plot(...)`

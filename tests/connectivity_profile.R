@@ -92,8 +92,8 @@ only_valid <- third[1:2, ]; only_valid_b <- only_valid; only_valid_b$Algorithm <
 empty_categories <- create_imbalance_performance_profile_plot(only_valid, only_valid_b)
 empty_axis <- ggplot2::ggplot_build(empty_categories)$layout$panel_params[[1]]$x
 stopifnot(all(c('I', 'F') %in% empty_axis$get_labels()),
-          identical(tail(empty_categories$scales$scales[[1]]$breaks, 2),
-                    c(c_start + 1.5/4, c_start + 1.5/2)))
+          isTRUE(all.equal(tail(empty_categories$scales$scales[[1]]$breaks, 2),
+                    c_start + (.04 * c_start / (1 - .04 * 2)) * c(1, 2))))
 # Different K values have independent baselines and denominators.
 k8a <- third[1:2, ]; k8b <- k8a; k8b$Algorithm <- 'b'
 k32a <- k8a; k32a$K <- 32; k32a$AvgCutWithoutConnectivity <- 100
@@ -114,28 +114,24 @@ stopifnot(inherits(try(suppressWarnings(create_performance_profile_plot(k8a,k32a
                      silent=TRUE), 'try-error'))
 cat('Connectivity profile checks passed\n')
 
-# Expanded imbalance uses a fixed epsilon-relative scale and an overflow marker.
+# Expanded imbalance uses descending success rates, including partial successes.
 severity <- third
-severity$AvgImbalance[3:4] <- c(.06, .10)
+severity$ImbalanceSuccessRate <- c(1, .7, .375, 0, NA, NA)
 severity_b <- severity; severity_b$Algorithm <- 'b'
 expanded <- create_expanded_imbalance_performance_profile_plot(severity, severity_b)
 axis <- expanded$scales$scales[[1]]
-stopifnot(is.expression(axis$labels), tail(as.list(axis$labels), 1)[[1]] == 'F')
+stopifnot(identical(tail(axis$labels, 5), c('I: < 0.75','0.50','0.25','0.0','F')))
+stopifnot(abs(diff(tail(axis$breaks, 2)) - .04 * max(axis$breaks)) < 1e-8,
+          axis$limits[2] == max(axis$breaks))
 curve <- expanded$data[expanded$data$Algorithm == 'a', ]
-stopifnot(any(abs(curve$Ratio - (c_start + 1 + 4 * .5)) < 1e-7 & curve$Fraction == 3/6),
-          any(abs(curve$Ratio - (c_start + 1 + 4 + .75)) < 1e-7 & curve$Fraction == 4/6),
+stopifnot(any(abs(curve$Ratio - (c_start + 1 + 4 * (.75 - .7) / .75)) < 1e-7 & curve$Fraction == 2/6),
+          any(abs(curve$Ratio - (c_start + 1 + 2)) < 1e-7 & curve$Fraction == 3/6),
+          any(abs(curve$Ratio - (c_start + 1 + 4)) < 1e-7 & curve$Fraction == 4/6),
           tail(curve$Fraction, 1) == 1)
 invisible(ggplot2::ggplot_build(expanded))
-severity$AvgImbalance[3] <- NA_real_
+severity$ImbalanceSuccessRate[3] <- 1.1
 stopifnot(inherits(try(create_expanded_imbalance_performance_profile_plot(severity, severity_b),
                       silent=TRUE), 'try-error'))
-
-stopifnot(identical(as.list(axis$labels)[[length(axis$labels) - 1L]],
-                    quote(">" * 3 * epsilon)))
-severity$AvgImbalance[3:4] <- c(.09, .09)
-boundary <- create_expanded_imbalance_performance_profile_plot(severity, severity_b)
-stopifnot(any(abs(boundary$data$Ratio - (c_start + 1 + 4)) < 1e-7 &
-              boundary$data$Algorithm == 'a' & boundary$data$Fraction == 4/6))
 
 # Extra-component severity stops at ten; larger counts use a separate marker.
 cap <- third
@@ -145,4 +141,33 @@ capped <- create_connectivity_performance_profile_plot(cap, cap_b)
 stopifnot(identical(tail(capped$scales$scales[[1]]$labels, 4), c('> 10 C','I','T','F')))
 cap_curve <- capped$data[capped$data$Algorithm == 'a', ]
 stopifnot(any(abs(cap_curve$Ratio - (c_start + 1 + 4)) < 1e-7 & cap_curve$Fraction == 2/6),
-          any(abs(cap_curve$Ratio - (c_start + 1 + 4 + 3/4)) < 1e-7 & cap_curve$Fraction == 3/6))
+          any(abs(cap_curve$Ratio - (c_start + 1 + 4 + .04 * (c_start + 1 + 4) / (1 - .04 * 4))) < 1e-7 & cap_curve$Fraction == 3/6))
+
+# Every profile reserves space after its final failure tick.
+for (padded in list(standard, p, third_plot, expanded)) {
+    x_axis <- padded$scales$scales[[1]]
+    panel <- ggplot2::ggplot_build(padded)$layout$panel_params[[1]]
+    right_fraction <- (panel$x.range[2] - max(x_axis$breaks)) / diff(panel$x.range)
+    stopifnot(abs(right_fraction - .04/1.04) < 1e-8)
+}
+
+# Category markers are evenly spaced from their divider through the right margin.
+for (item in list(list(standard, 4L, c_start), list(p, 4L, c_start + 5),
+                  list(third_plot, 2L, c_start), list(expanded, 1L, c_start + 5))) {
+    plot <- item[[1]]
+    ticks <- tail(plot$scales$scales[[1]]$breaks, item[[2]])
+    right <- ggplot2::ggplot_build(plot)$layout$panel_params[[1]]$x.range[2]
+    gaps <- diff(c(item[[3]], ticks, right))
+    stopifnot(max(gaps) - min(gaps) < 1e-8)
+}
+
+# Success rates override average imbalance and explicit flags at the strict boundary.
+threshold_raw <- raw
+threshold_raw$ImbalanceSuccessRate <- c(.75, .749, 1, 0, 1, 1)
+threshold_raw$Imbalance <- .1
+threshold_raw$FailedImbalance <- 1
+threshold_raw$Connectivity <- 0
+threshold_raw$FailedConnectivity <- 0
+threshold <- default_normalizer(threshold_raw)
+stopifnot(identical(threshold$ImbalancedWithoutConnectivity,
+                    c(FALSE, TRUE, FALSE, TRUE, FALSE, FALSE)))
