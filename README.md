@@ -118,6 +118,20 @@ is accepted. Legacy CSVs without success rates retain their prior constraint rul
 Missing success rates are not inferred from average imbalance or failure flags.
 `test.R` adds these profiles as separate PDF pages for each K.
 
+### `create_expanded_connectivity_performance_profile_plot(...)`
+
+Uses `ConnectivitySuccessRate` on the same descending scale as the expanded
+imbalance profile: C: < 0.75, 0.50, 0.25, 0.0, followed by I for imbalance and F for execution
+failures and timeouts. Connectivity violations take precedence when both constraints fail. Exactly 0.75 remains in the objective-ratio section.
+The success rate overrides connectivity flags; imbalance uses
+`column.imbalanced` (default `ImbalancedWithoutConnectivity`).
+The objective defaults to `AvgCutWithoutConnectivity`; use
+`column.objective = "AvgKM1WithoutConnectivity"` for KM1 data, matching the
+imbalance-success comparison. This objective still uses imbalance-valid runs.
+Completed instances require finite success rates between 0 and 1.
+Customize `column.success.rate`, `segment.connectivity.width` (4), and
+`segment.connectivity.gap` (1). `test.R` includes a separate page for each K.
+
 ### `create_running_time_box_plot(...)`
 
 Per-instance running-time box plot per algorithm, with optional failure,
@@ -293,3 +307,66 @@ Its loader uses `default_km1_normalizer()`, exposing `AvgKM1` for the
 connectivity profile and `AvgKM1WithoutConnectivity` for profiles ignoring
 connectivity. The existing feasibility and repeated-run averaging rules apply.
 Every CSV in the loaded folders must include `Km1`; there is no cut fallback.
+
+### Imbalance success-rate grid
+
+Run `source("imbalance_success_grid.R")` to create `imbalance_success_grid.pdf`.
+Edit `data/imbalance_success_grid_layout.csv` to associate each CSV with integer
+`x,y` coordinates. Paths are relative to the layout file; larger y appears higher.
+Each filename and coordinate pair must be unique. The layout uses the CSVs in `data/st_bfs options`, with x set to the number
+of spanning tree recalculations and y set to the number of BFS origins.
+Each square shows the fraction of completed graph rows with
+`ImbalanceSuccessRate < threshold` (excluding failures and timeouts), rounded to two
+decimal places. The default threshold is 0.75; equality is not counted.
+Set `imbalance_grid_threshold` in `test.R`, or pass it directly:
+
+```r
+create_imbalance_success_grid_plot("data/imbalance_success_grid_layout.csv", threshold = 0.9)
+```
+
+The standalone `imbalance_success_grid.R` script exposes a `threshold` variable.
+Thresholds must be between 0 and 1; the legend shows the configured value.
+A file without completed rows displays NA. Unassigned positions remain empty.
+
+The x axis is labeled "Number of Spanning Tree Recalculations per BFS" and the
+y axis "Number of BFS Origins".
+Tile colors range from blue (0) to white (0.5) to red (1).
+The title is "Imbalance Grid". The legend is labeled "Below Threshold (0.75)"
+and appears below the grid.
+
+Grid lines stay at integer boundaries; cells and axis numbers are centered between them.
+
+### Total-time grid
+
+`create_total_time_grid_plot(layout_file)` uses the same coordinates and styling
+as the imbalance grid. Each square shows `sum(Time)` for the corresponding CSV,
+in seconds, rounded to integers for display. All recorded rows contribute, including failed
+runs and timeouts. Missing, negative, or nonfinite times are rejected to avoid
+reporting an incomplete total. Colors run from blue (shorter) to red (longer).
+The legend uses five evenly spaced labels and rounds its upper limit up to a multiple of 100.
+The plot sums the recorded values; if CSV times are averages of repeats, it sums
+those averages.
+
+`test.R` adds this grid after the imbalance grid. Run `source("total_time_grid.R")`
+to save it separately as `total_time_grid.pdf`.
+
+### Constraint-only profiles (no quality comparison)
+
+`create_imbalance_success_profile_plot(...)` and
+`create_connectivity_success_profile_plot(...)` show the cumulative fraction of
+instances with success rate at least the x-axis threshold, from **100% to 0%**.
+Each uses its own success-rate column and ignores the other constraint. Completed
+instances require rates between 0 and 1. Timeouts and execution failures enter
+at **F**, regardless of their recorded rates.
+
+`create_extra_components_profile_plot(...)` shows average extra components from
+**0 to 10**, followed by **> 10 C**, **I**, and **F**. As in the expanded
+connectivity performance profile, positive component counts take precedence over
+imbalance; completed zero-component instances violating imbalance enter at I.
+It uses `AvgConnectivity` and `ImbalancedWithoutConnectivity` by default.
+Timeouts and execution failures both enter at F.
+
+These functions require no objective columns and retain the per-K comparison,
+matching graph keys, colors, levels, and plain-text/TeX label support. Customize
+`column.success.rate`, `column.components`, or `column.imbalanced` as appropriate.
+`test.R` appends all three variants as separate pages for each qualifying K.

@@ -145,6 +145,7 @@ create_performance_profile_data <- function(
     column.connectivity = "FailedConnectivity",
     connectivity.profile = FALSE,
     imbalance.profile = FALSE,
+    success.rate.profile = imbalance.profile,
     column.imbalance = "AvgImbalance",
     column.epsilon = "Epsilon",
     column.success.rate = "ImbalanceSuccessRate",
@@ -176,8 +177,8 @@ create_performance_profile_data <- function(
         cli::cli_abort("Need at least two data frames for plotting a performance profile.")
     }
 
-    if (imbalance.profile) {
-        # Descending success thresholds: only success rates strictly below 0.75 violate imbalance.
+    if (success.rate.profile) {
+        # Descending success thresholds: rates strictly below 0.75 enter the success-rate scale.
         all_dfs <- lapply(all_dfs, function(df) {
             completed <- !df[[column.failed]] & !df[[column.timeout]]
             if (!column.success.rate %in% names(df) ||
@@ -185,7 +186,7 @@ create_performance_profile_data <- function(
                 any(!is.finite(df[[column.success.rate]][completed])) ||
                 any(df[[column.success.rate]][completed] < 0 |
                     df[[column.success.rate]][completed] > 1)) {
-                stop("Imbalance profiles require ", column.success.rate,
+                stop("Success-rate profiles require ", column.success.rate,
                      " values between 0 and 1 for completed instances.")
             }
             rate <- df[[column.success.rate]]
@@ -193,10 +194,10 @@ create_performance_profile_data <- function(
             df[[column.components]] <- 0
             df[[column.components]][active] <- .75 - rate[active]
             df[[column.connectivity]] <- active
-            df[[column.imbalanced]] <- FALSE
+            if (imbalance.profile) df[[column.imbalanced]] <- FALSE
             df
         })
-        label.connectivity <- label.imbalanced
+        if (imbalance.profile) label.connectivity <- label.imbalanced
     }
 
     # Expand C into an absolute scale of average extra components.
@@ -216,8 +217,8 @@ create_performance_profile_data <- function(
             }
             values
         }))
-        component_max <- if (imbalance.profile) .75 else 10
-        component_breaks <- if (imbalance.profile) seq(0, .75, by = .25) else seq(0, 10, by = 2)
+        component_max <- if (success.rate.profile) .75 else 10
+        component_breaks <- if (success.rate.profile) seq(0, .75, by = .25) else seq(0, 10, by = 2)
         for (i in seq_along(all_dfs)) {
             if (!column.components %in% names(all_dfs[[i]])) all_dfs[[i]][[column.components]] <- 0
         }
@@ -228,9 +229,9 @@ create_performance_profile_data <- function(
         # Match marker spacing to the 4% right expansion of the final axis range.
         boundary <- sum(vapply(segments, function(segment) segment$width, numeric(1)))
         if (connectivity.profile) boundary <- boundary + segment.connectivity.gap + segment.connectivity.width
-        marker_count <- if (imbalance.profile) 1 else if (merge.failures && !connectivity.profile) 2 else 4
+        marker_count <- if (success.rate.profile) { if (imbalance.profile) 1 else 2 } else if (merge.failures && !connectivity.profile) 2 else 4
         marker_gap <- .04 * boundary / (1 - .04 * marker_count)
-        segment.errors.width <- marker_gap * if (imbalance.profile) 1 else 4
+        segment.errors.width <- marker_gap * if (success.rate.profile) marker_count else 4
     }
 
     # Run some basic sanity checks against the data frames
@@ -341,10 +342,10 @@ create_performance_profile_data <- function(
     map_errors <- function(vals) {
         purrr::map_int(vals, ~ case_when(
             .x == PP_RATIO_COMPONENT_OVERFLOW ~ 1,
-            .x == PP_RATIO_IMBALANCED ~ if (imbalance.profile) 1L else 2L,
-            .x == PP_RATIO_TIMEOUT ~ if (imbalance.profile) 2L else 3L,
-            .x == PP_RATIO_FAILED ~ if (imbalance.profile) 3L else 4L,
-            .x == Inf ~ if (imbalance.profile) 3L else 4L,
+            .x == PP_RATIO_IMBALANCED ~ if (success.rate.profile) 1L else 2L,
+            .x == PP_RATIO_TIMEOUT ~ if (success.rate.profile) 2L else 3L,
+            .x == PP_RATIO_FAILED ~ if (success.rate.profile) 3L else 4L,
+            .x == Inf ~ if (success.rate.profile) 3L else 4L,
             TRUE ~ 0
         ))
     }
@@ -357,7 +358,9 @@ create_performance_profile_data <- function(
                     Ratio >= PP_RATIO_CONNECTIVITY & Ratio <= PP_RATIO_CONNECTIVITY + 1,
                     segment.connectivity.gap + segment.connectivity.width * (Ratio - PP_RATIO_CONNECTIVITY),
                     ifelse(map_errors(Ratio) > 0, segment.connectivity.gap + segment.connectivity.width +
-                        segment.errors.width * (if (imbalance.profile) 1 else map_errors(Ratio) / 4), 0)
+                        segment.errors.width * (if (success.rate.profile) {
+                            if (imbalance.profile) 1 else ifelse(Ratio == PP_RATIO_IMBALANCED, .5, 1)
+                        } else map_errors(Ratio) / 4), 0)
                 ),
                 Ratio
             )) %>%
@@ -411,14 +414,16 @@ create_performance_profile_data <- function(
     if (connectivity.profile) {
         x_breaks <- c(x_breaks,
             offset + segment.connectivity.gap + segment.connectivity.width * component_breaks / component_max,
-            offset + segment.connectivity.gap + segment.connectivity.width + segment.errors.width * (if (imbalance.profile) 1 else c(1/4, 2/4, 3/4, 1)))
+            offset + segment.connectivity.gap + segment.connectivity.width + segment.errors.width * (if (success.rate.profile) { if (imbalance.profile) 1 else c(.5, 1) } else c(1/4, 2/4, 3/4, 1)))
         component_labels <- format(signif(component_breaks, 3), trim = TRUE)
-        if (imbalance.profile) {
+        if (success.rate.profile) {
             component_labels <- c("< 0.75", "0.50", "0.25", "0.0")
         }
         component_labels[1] <- paste0(label.connectivity, ": ", component_labels[1])
         x_labels <- c(x_labels, component_labels,
-            if (imbalance.profile) label.failed else c("> 10 C", label.imbalanced, label.timeout, label.failed))
+            if (success.rate.profile) {
+                if (imbalance.profile) label.failed else c(label.imbalanced, label.failed)
+            } else c("> 10 C", label.imbalanced, label.timeout, label.failed))
 
     } else if (merge.failures) {
         x_breaks <- c(x_breaks, offset + segment.errors.width * c(1/4, 2/4))
@@ -472,7 +477,7 @@ create_performance_profile_data <- function(
 }
 
 # Split each input by K before comparing algorithms. Keep the single-K API.
-.create_profiles_by_k <- function(...) {
+.create_profiles_by_k <- function(..., .profile.function = .create_performance_profile_plot) {
     args <- list(...)
     is_dataset <- vapply(args, is.data.frame, logical(1))
     datasets <- args[is_dataset]
@@ -492,7 +497,7 @@ create_performance_profile_data <- function(
             warning("Skipping K = ", k, ": need at least two datasets for comparison.", call. = FALSE)
             next
         }
-        plot <- do.call(.create_performance_profile_plot, c(unname(group), options)) +
+        plot <- do.call(.profile.function, c(unname(group), options)) +
             ggplot2::labs(subtitle = paste("K =", k))
         plots[[as.character(k)]] <- plot
     }
@@ -544,4 +549,132 @@ create_expanded_imbalance_performance_profile_plot <- function(
         segment.errors.width = segment.errors.width,
         segment.connectivity.width = segment.imbalance.width,
         segment.connectivity.gap = segment.imbalance.gap)
+}
+
+# Expand C into descending connectivity success rates; merge execution failures at F.
+create_expanded_connectivity_performance_profile_plot <- function(
+    ...,
+    column.objective = "AvgCutWithoutConnectivity",
+    column.success.rate = "ConnectivitySuccessRate",
+    column.imbalanced = "ImbalancedWithoutConnectivity",
+    segment.connectivity.width = 4,
+    segment.connectivity.gap = 1,
+    segment.errors.width = NULL
+) {
+    .create_profiles_by_k(
+        ..., column.objective = column.objective,
+        column.imbalanced = column.imbalanced,
+        column.success.rate = column.success.rate,
+        column.connectivity = ".ConnectivitySuccessSeverity",
+        column.components = ".ConnectivitySuccessDeficit",
+        connectivity.profile = TRUE, success.rate.profile = TRUE, merge.failures = TRUE,
+        segment.errors.width = segment.errors.width,
+        segment.connectivity.width = segment.connectivity.width,
+        segment.connectivity.gap = segment.connectivity.gap)
+}
+
+# Constraint-only cumulative profiles: no objective column or quality comparison.
+.create_constraint_profile_plot <- function(
+    ..., mode = c("imbalance", "connectivity", "components"),
+    column.algorithm = "Algorithm", column.failed = "Failed", column.timeout = "Timeout",
+    column.success.rate = "ImbalanceSuccessRate", column.components = "AvgConnectivity",
+    column.imbalanced = "ImbalancedWithoutConnectivity",
+    primary_key = c("Graph", "K"), tex = FALSE,
+    label.imbalanced = plot_label(tex, TEX_LABEL_IMBALANCED, PDF_LABEL_IMBALANCED),
+    label.failed = plot_label(tex, TEX_LABEL_FAILED, PDF_LABEL_FAILED),
+    colors = c(), levels = c(), axis.y.sparse_labels = TRUE,
+    plot.xlab = NA, plot.ylab = "Fraction of Instances",
+    legend.title = ggplot2::waiver()
+) {
+    mode <- match.arg(mode)
+    datasets <- list(...)
+    required <- c(primary_key, column.algorithm, column.failed, column.timeout,
+        if (mode == "components") c(column.components, column.imbalanced) else column.success.rate)
+    for (i in seq_along(datasets)) {
+        df <- datasets[[i]]
+        missing <- setdiff(required, names(df))
+        if (length(missing)) stop("Missing columns: ", paste(missing, collapse = ", "))
+        if (length(unique(df[[column.algorithm]])) != 1 || anyNA(df[[column.algorithm]])) {
+            stop("Each dataset must contain one nonmissing algorithm name.")
+        }
+        for (flag in c(column.failed, column.timeout,
+                       if (mode == "components") column.imbalanced)) {
+            if (anyNA(df[[flag]]) || !all(df[[flag]] %in% c(FALSE, TRUE))) {
+                stop("Column ", flag, " must contain nonmissing logical or 0/1 flags.")
+            }
+        }
+        df <- dplyr::arrange_at(df, primary_key)
+        if (anyNA(df[primary_key]) || anyDuplicated(df[primary_key])) {
+            stop("Primary keys must be unique and nonmissing.")
+        }
+        datasets[[i]] <- df
+        if (!isTRUE(all.equal(df[primary_key], datasets[[1]][primary_key]))) {
+            stop("Primary keys must match between datasets.")
+        }
+    }
+    components <- mode == "components"
+    end <- if (components) 10 else 1
+    marker_count <- if (components) 3 else 1
+    gap <- .04 * end / (1 - .04 * marker_count)
+    markers <- end + gap * seq_len(marker_count)
+    curves <- lapply(datasets, function(df) {
+        failed <- as.logical(df[[column.failed]]) | as.logical(df[[column.timeout]])
+        values <- df[[if (components) column.components else column.success.rate]]
+        if (!is.numeric(values) || any(!is.finite(values[!failed])) ||
+            any(values[!failed] < 0) || (!components && any(values[!failed] > 1))) {
+            stop(if (components) "Completed instances require finite nonnegative component counts."
+                 else "Completed instances require finite success rates between 0 and 1.")
+        }
+        if (components) {
+            x <- ifelse(values > end, markers[1], values)
+            # As in the expanded connectivity profile, positive components take precedence over I.
+            x[!failed & values == 0 & as.logical(df[[column.imbalanced]])] <- markers[2]
+        } else {
+            x <- 1 - values
+        }
+        x[failed] <- tail(markers, 1)
+        curve <- data.frame(Ratio = x) %>%
+            dplyr::count(Ratio, name = "N") %>%
+            dplyr::arrange(Ratio) %>%
+            dplyr::transmute(Ratio, Fraction = cumsum(N) / nrow(df),
+                             Algorithm = df[[column.algorithm]][1])
+        # Zero baseline, plus a final plateau even when no failures occurred.
+        rbind(data.frame(Ratio = 0, Fraction = 0, Algorithm = curve$Algorithm[1]),
+              curve,
+              data.frame(Ratio = tail(markers, 1), Fraction = 1, Algorithm = curve$Algorithm[1]))
+    })
+    data <- dplyr::bind_rows(curves)
+    if (length(levels)) data$Algorithm <- factor(data$Algorithm, levels = levels)
+    breaks <- c(if (components) seq(0, 10, 2) else seq(0, 1, .25), markers)
+    labels <- c(if (components) as.character(seq(0, 10, 2)) else
+                    paste0(c(100, 75, 50, 25, 0), if (tex) "\\%" else "%"),
+                if (components) c("> 10 C", label.imbalanced, label.failed) else label.failed)
+    p <- ggplot2::ggplot(data, ggplot2::aes(Ratio, Fraction, color = Algorithm)) +
+        ggplot2::geom_step(linewidth = 1.5) +
+        ggplot2::scale_x_continuous(limits = c(0, max(breaks)), breaks = breaks,
+            labels = labels, expand = ggplot2::expansion(mult = c(0, .04))) +
+        ggplot2::scale_y_continuous(limits = c(0, 1), expand = c(0, .01),
+            breaks = seq(0, 1, .1), labels = if (axis.y.sparse_labels)
+                c("0.0", "", "0.2", "", "0.4", "", "0.6", "", "0.8", "", "1.0") else seq(0, 1, .1)) +
+        ggplot2::geom_vline(xintercept = end) +
+        ggplot2::guides(color = ggplot2::guide_legend(title = legend.title))
+    if (!is.na(plot.xlab)) p <- p + ggplot2::xlab(plot.xlab)
+    if (!is.na(plot.ylab)) p <- p + ggplot2::ylab(plot.ylab)
+    if (length(colors)) p <- p + ggplot2::scale_color_manual(values = colors)
+    p
+}
+
+create_imbalance_success_profile_plot <- function(..., column.success.rate = "ImbalanceSuccessRate") {
+    .create_profiles_by_k(..., column.success.rate = column.success.rate, mode = "imbalance",
+        .profile.function = .create_constraint_profile_plot)
+}
+
+create_connectivity_success_profile_plot <- function(..., column.success.rate = "ConnectivitySuccessRate") {
+    .create_profiles_by_k(..., column.success.rate = column.success.rate, mode = "connectivity",
+        .profile.function = .create_constraint_profile_plot)
+}
+
+create_extra_components_profile_plot <- function(...) {
+    .create_profiles_by_k(..., mode = "components",
+        .profile.function = .create_constraint_profile_plot)
 }

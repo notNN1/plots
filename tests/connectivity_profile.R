@@ -171,3 +171,38 @@ threshold_raw$FailedConnectivity <- 0
 threshold <- default_normalizer(threshold_raw)
 stopifnot(identical(threshold$ImbalancedWithoutConnectivity,
                     c(FALSE, TRUE, FALSE, TRUE, FALSE, FALSE)))
+
+# Connectivity success uses its own rates and retains a separate imbalance marker.
+connectivity_success <- third
+connectivity_success$ConnectivitySuccessRate <- c(.75, .7, .375, 0, NA, NA)
+connectivity_success$ImbalanceSuccessRate <- 1
+connectivity_success_b <- connectivity_success; connectivity_success_b$Algorithm <- 'b'
+success_plot <- create_expanded_connectivity_performance_profile_plot(
+    connectivity_success, connectivity_success_b)
+stopifnot(identical(tail(success_plot$scales$scales[[1]]$labels, 6),
+                    c('C: < 0.75', '0.50', '0.25', '0.0', 'I', 'F')))
+success_curve <- success_plot$data[success_plot$data$Algorithm == 'a', ]
+stopifnot(any(success_curve$Ratio == 0 & success_curve$Fraction == 1/6),
+          any(abs(success_curve$Ratio - (c_start + 1 + 4 * (.75 - .7) / .75)) < 1e-7 &
+              success_curve$Fraction == 2/6),
+          any(abs(success_curve$Ratio - (c_start + 3)) < 1e-7 & success_curve$Fraction == 3/6),
+          any(abs(success_curve$Ratio - (c_start + 5)) < 1e-7 & success_curve$Fraction == 4/6),
+          tail(success_curve$Fraction, 1) == 1)
+invisible(ggplot2::ggplot_build(success_plot))
+for (invalid_rate in c(-.1, 1.1, NA, Inf)) {
+    invalid <- connectivity_success; invalid$ConnectivitySuccessRate[1] <- invalid_rate
+    stopifnot(inherits(try(create_expanded_connectivity_performance_profile_plot(
+        invalid, connectivity_success_b), silent = TRUE), 'try-error'))
+}
+
+# Connected imbalanced instances enter at I; overlapping C/I violations enter at C.
+imbalanced_success <- connectivity_success
+imbalanced_success$ImbalancedWithoutConnectivity[1] <- TRUE
+imbalanced_success_b <- imbalanced_success; imbalanced_success_b$Algorithm <- 'b'
+with_i <- create_expanded_connectivity_performance_profile_plot(
+    imbalanced_success, imbalanced_success_b)
+i_axis <- with_i$scales$scales[[1]]
+i_curve <- with_i$data[with_i$data$Algorithm == 'a', ]
+stopifnot(any(abs(i_curve$Ratio - tail(i_axis$breaks, 2)[1]) < 1e-8 & i_curve$Fraction == 4/6),
+          max(i_curve$Fraction[i_curve$Ratio <= c_start]) == 0)
+invisible(ggplot2::ggplot_build(with_i))
