@@ -638,8 +638,11 @@ create_expanded_connectivity_performance_profile_plot <- function(
             dplyr::arrange(Ratio) %>%
             dplyr::transmute(Ratio, Fraction = cumsum(N) / nrow(df),
                              Algorithm = df[[column.algorithm]][1])
-        # Zero baseline, plus a final plateau even when no failures occurred.
-        rbind(data.frame(Ratio = 0, Fraction = 0, Algorithm = curve$Algorithm[1]),
+        # Start at the actual cumulative fraction at the leftmost threshold.
+        # Add a zero baseline only when no instances meet that threshold.
+        baseline <- if (any(curve$Ratio == 0)) curve[FALSE, ] else
+            data.frame(Ratio = 0, Fraction = 0, Algorithm = curve$Algorithm[1])
+        rbind(baseline,
               curve,
               data.frame(Ratio = tail(markers, 1), Fraction = 1, Algorithm = curve$Algorithm[1]))
     })

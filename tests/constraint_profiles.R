@@ -12,9 +12,15 @@ for (fun in list(create_imbalance_success_profile_plot, create_connectivity_succ
     p <- fun(a, b)
     stopifnot(identical(p$scales$scales[[1]]$labels, c("100%", "75%", "50%", "25%", "0%", "F")))
     curve <- subset(p$data, Algorithm == "a")
-    stopifnot(any(abs(curve$Ratio - .1) < 1e-8 & curve$Fraction == 2/7),
+    stopifnot(sum(curve$Ratio == 0) == 1, curve$Fraction[1] == 1/7,
+        any(abs(curve$Ratio - .1) < 1e-8 & curve$Fraction == 2/7),
         any(curve$Ratio == 1 & curve$Fraction == 5/7), tail(curve$Fraction, 1) == 1)
     invisible(ggplot2::ggplot_build(p))
+    no_perfect <- a
+    no_perfect$ImbalanceSuccessRate[1] <- .9
+    no_perfect$ConnectivitySuccessRate[1] <- .9
+    no_perfect_curve <- subset(fun(no_perfect, b)$data, Algorithm == "a")
+    stopifnot(no_perfect_curve$Ratio[1] == 0, no_perfect_curve$Fraction[1] == 0)
     changed <- a; changed$AvgCut <- NA; changed$AvgKM1 <- Inf
     stopifnot(identical(p$data, fun(changed, b)$data))
     mixed <- a; mixed$K <- 32
