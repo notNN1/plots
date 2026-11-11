@@ -118,6 +118,14 @@ is accepted. Legacy CSVs without success rates retain their prior constraint rul
 Missing success rates are not inferred from average imbalance or failure flags.
 `test.R` adds these profiles as separate PDF pages for each K.
 
+### `create_imbalance_success_rate_rank_plot(data, ...)`
+
+Creates a horizontal bar chart with one row per graph, sorted by
+`ImbalanceSuccessRate` ascending (lowest rate at the top). The input must contain
+unique graph names and finite success rates between 0 and 1. The
+`st_hyperparameters_advanced_imbalance_rank.R` script applies it to the CSV with
+recalculation budget 3.
+
 ### `create_expanded_connectivity_performance_profile_plot(...)`
 
 Uses `ConnectivitySuccessRate` on the same descending scale as the expanded
