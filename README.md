@@ -61,6 +61,9 @@ K values are supported too.
 
 Performance profile over at least two algorithms. Each curve shows the fraction
 of common instances solved within a ratio of the best objective.
+Set `column.reference` to compare against a fixed reference column instead.
+The metric Connectivity profile uses `column.reference = "K"`, giving
+`(K + AvgConnectivity) / K` against the best achievable component count.
 
 Required columns default to `Algorithm`, `AvgCut`, `Timeout`, `Imbalanced`,
 `Failed`, and primary key `Graph`, `K`. Optional `FailedConnectivity` defaults
@@ -125,6 +128,8 @@ Creates a horizontal bar chart with one row per graph, sorted by
 unique graph names and finite success rates between 0 and 1. The
 `st_hyperparameters_advanced_imbalance_rank.R` script applies it to the CSV with
 recalculation budget 3.
+`st_bfs_hyperparameters_subtree_imbalance_rank.R` creates the same chart for
+ST_BFS Subtree with 2 origins and 2 spanning tree recalculations.
 
 ### `create_expanded_connectivity_performance_profile_plot(...)`
 

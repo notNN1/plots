@@ -1,7 +1,15 @@
 #!/usr/bin/env Rscript
 # Run from the repository root: Rscript metric_performance_profile.R
+# For K = 64: Rscript metric_performance_profile.R 64
 source("R/common.R")
 source("R/performance_profile_plot.R")
+
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) > 1L || (length(args) == 1L && !grepl("^[1-9][0-9]*$", args[[1]]))) {
+    stop("Usage: Rscript metric_performance_profile.R [K]")
+}
+k <- if (length(args)) as.integer(args[[1]]) else 32L
+output_suffix <- if (k == 32L) "" else paste0("_k", k)
 
 data_dir <- normalizePath("data/metric", mustWork = TRUE)
 validate_connectivity_counts <- function(filename) {
@@ -25,6 +33,7 @@ csv_files <- c(
     "No Refinement + Old Metric" = "ip.standard_no.refinement_old.metric_k32.csv",
     "Refinement + Old Metric" = "do_nothing_ip.standard_old.metric_k32.csv"
 )
+csv_files <- sub("_k32\\.csv$", paste0("_k", k, ".csv"), csv_files)
 
 datasets <- lapply(names(csv_files), function(name) {
     filename <- file.path(data_dir, csv_files[[name]])
@@ -80,17 +89,18 @@ connectivity_datasets <- lapply(datasets, function(df) {
 connectivity_profiles <- do.call(create_imbalance_performance_profile_plot,
     c(connectivity_datasets, list(
         column.objective = "ConnectivityComponentCount",
+        column.reference = "K",
         column.failed = "ConnectivityProfileFailed",
         column.imbalanced = "ConnectivityProfileImbalanced",
         levels = names(csv_files),
-        plot.xlab = "Connectivity Component Count Ratio (Current / Best)",
+        plot.xlab = "Component Ratio",
         plot.ylab = "Fraction of Instances",
         legend.title = NULL,
         tex = FALSE
     )))
 if (inherits(connectivity_profiles, "ggplot")) connectivity_profiles <- list(connectivity_profiles)
 connectivity_profiles <- lapply(connectivity_profiles, function(plot) {
-    plot + ggplot2::labs(title = "Connectivity Component Count Profile") +
+    plot + ggplot2::labs(title = NULL, subtitle = NULL) +
         default_theme +
         ggplot2::theme(
             legend.position = "bottom",
@@ -111,5 +121,5 @@ write_profile_pdf <- function(filename, plots) {
     }, finally = grDevices::dev.off())
 }
 
-write_profile_pdf("metric_imbalance_profile.pdf", imbalance_profiles)
-write_profile_pdf("metric_connectivity_profile.pdf", connectivity_profiles)
+write_profile_pdf(paste0("metric_imbalance_profile", output_suffix, ".pdf"), imbalance_profiles)
+write_profile_pdf(paste0("metric_connectivity_profile", output_suffix, ".pdf"), connectivity_profiles)

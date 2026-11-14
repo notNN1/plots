@@ -119,6 +119,8 @@ create_performance_profile_data <- function(
 #' Plot a performance profile over multiple algorithms.
 #'
 #' @param ... Normalized result data frames with identical primary keys.
+#' @param column.reference Optional column of positive reference objectives. If NULL,
+#'   compare against the best observed objective for each instance.
 #' @param column.objective,column.algorithm,column.timeout,column.imbalanced,column.failed,column.connectivity
 #'   Source column names.
 #' @param primary_key Columns that identify common instances.
@@ -138,6 +140,7 @@ create_performance_profile_data <- function(
 .create_performance_profile_plot <- \(
     ...,
     column.objective = "AvgCut",
+    column.reference = NULL,
     column.algorithm = "Algorithm",
     column.timeout = "Timeout",
     column.imbalanced = "Imbalanced",
@@ -281,11 +284,19 @@ create_performance_profile_data <- function(
     }
 
     num_rows <- nrow(all_dfs[[1]])
-    best <- do.call(pmin, lapply(all_dfs, \(df) df[[column.objective]]))
+    best <- if (is.null(column.reference)) {
+        do.call(pmin, lapply(all_dfs, \(df) df[[column.objective]]))
+    } else NULL
 
     data <- purrr::map_dfr(all_dfs, function(df) {
+        reference <- if (is.null(column.reference)) best else df[[column.reference]]
+        if (!is.null(column.reference) &&
+            (!is.numeric(reference) || length(reference) != nrow(df) ||
+             any(!is.finite(reference) | reference <= 0))) {
+            stop("Reference column ", column.reference, " must contain finite positive objectives.")
+        }
         df <- df %>%
-            dplyr::mutate(Ratio = df[[column.objective]] / best) %>%
+            dplyr::mutate(Ratio = df[[column.objective]] / reference) %>%
             dplyr::mutate(Ratio = case_when(
                 df[[column.timeout]] ~ if (merge.failures) PP_RATIO_FAILED else PP_RATIO_TIMEOUT,
                 df[[column.failed]] ~ PP_RATIO_FAILED,
