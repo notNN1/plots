@@ -1,3 +1,5 @@
+source("R/result_values.R")
+
 # Balance the legend around the bar itself, including the title on its left.
 .imbalance_grid_colorbar <- function() {
     guide <- ggplot2::guide_colorbar(
@@ -50,12 +52,21 @@ create_total_time_grid_plot <- function(layout_file) {
         anyDuplicated(layout[c("x", "y")])) {
         stop("Each CSV needs a unique filename and a unique pair of integer coordinates.")
     }
-    layout$Value <- vapply(layout$filename, function(filename) {
-        path <- if (startsWith(filename, "/")) filename else file.path(dirname(layout_file), filename)
-        df <- read.csv(path)
+    paths <- vapply(layout$filename, function(filename) {
+        if (startsWith(filename, "/")) filename else file.path(dirname(layout_file), filename)
+    }, character(1))
+    raw_datasets <- lapply(paths, read.csv)
+    value_mode <- result_value_mode(raw_datasets)
+    layout$Value <- vapply(seq_along(raw_datasets), function(i) {
+        path <- paths[[i]]
+        df <- select_result_values(raw_datasets[[i]], value_mode)
         if (metric == "total_time") {
             if (!"Time" %in% names(df) || !is.numeric(df$Time) ||
-                !nrow(df) || anyNA(df$Time) || any(!is.finite(df$Time) | df$Time < 0)) {
+                !nrow(df) || any(!is.na(df$Time) & (!is.finite(df$Time) | df$Time < 0))) {
+                stop("Total-time grids require finite nonnegative Time values in ", path)
+            }
+            if (anyNA(df$Time)) {
+                if (value_mode == "best" && "AverageTime" %in% names(df)) return(NA_real_)
                 stop("Total-time grids require finite nonnegative Time values in ", path)
             }
             return(sum(df$Time))
@@ -78,7 +89,7 @@ create_total_time_grid_plot <- function(layout_file) {
     label_format <- if (metric == "total_time") "%.0f" else "%.2f"
     layout$Label <- ifelse(is.na(layout$Value), "NA", sprintf(label_format, layout$Value))
     fill_scale <- if (metric == "total_time") {
-        legend_max <- max(100, ceiling(max(layout$Value) / 100) * 100)
+        legend_max <- max(100, ceiling(max(c(0, layout$Value), na.rm = TRUE) / 100) * 100)
         ggplot2::scale_fill_gradientn(colors = c("#2166AC", "#FFFFFF", "#D73027"),
             limits = c(0, legend_max), breaks = seq(0, legend_max, length.out = 5),
             labels = function(x) sprintf("%.0f", x),
@@ -94,7 +105,7 @@ create_total_time_grid_plot <- function(layout_file) {
     # Integer coordinates name cells; their centers lie between integer grid lines.
     x_labels <- seq(min(layout$x), max(layout$x))
     y_labels <- seq(min(layout$y), max(layout$y))
-    ggplot2::ggplot(layout, ggplot2::aes(x = x - .5, y = y - .5)) +
+    plot <- ggplot2::ggplot(layout, ggplot2::aes(x = x - .5, y = y - .5)) +
         ggplot2::geom_vline(xintercept = seq(min(0, min(layout$x) - 1), max(0, layout$x)),
             color = "grey90", linewidth = .3) +
         ggplot2::geom_hline(yintercept = seq(min(0, min(layout$y) - 1), max(0, layout$y)),
@@ -131,4 +142,6 @@ create_total_time_grid_plot <- function(layout_file) {
             axis.text = ggplot2::element_text(size = 15, color = "black"),
             legend.text = ggplot2::element_text(size = value_text_size_mm * 72.27 / 25.4),
             legend.position = "bottom")
+    attr(plot, "result_value_mode") <- value_mode
+    plot
 }

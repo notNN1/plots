@@ -1,4 +1,6 @@
 #!/usr/bin/env Rscript
+source("R/plot_output_path.R")
+source("R/result_values.R")
 options(tidyverse.quiet = TRUE)
 
 library(tidyverse, warn.conflicts = FALSE)
@@ -237,6 +239,11 @@ normalize_constraint_flags <- function(df) {
         as.logical(as.integer(x))
     }
     if (!"Connectivity" %in% names(df)) df$Connectivity <- 0L
+    # Missing best results have already been classified as execution failures.
+    # Supply an internal placeholder; failed rows never contribute metric values.
+    if ("ResultSelectionFailed" %in% names(df)) {
+        df$Connectivity[df$ResultSelectionFailed & !is.finite(df$Connectivity)] <- 0
+    }
     if (!is.numeric(df$Connectivity) || anyNA(df$Connectivity) ||
         any(!is.finite(df$Connectivity) | df$Connectivity < 0)) {
         stop("Connectivity must contain finite nonnegative numbers of unnecessary components")
@@ -265,7 +272,8 @@ default_normalizer <- \(
     aggregate.pre = identity,
     aggregate.post = identity
 ) {
-    normalize_constraint_flags(df) %>%
+    select_result_values(df) %>%
+        normalize_constraint_flags() %>%
         dplyr::mutate(Graph = sub("\\.metis|\\.bgf|\\.mtx|\\.mtx.hgr|\\.hgr|\\.graph|\\.scotch", "", Graph)) %>%
         dplyr::mutate(Failed = ifelse(Failed == "1", TRUE, FALSE)) %>%
         dplyr::mutate(Timeout = ifelse(Timeout == "1", TRUE, FALSE)) %>%
@@ -289,6 +297,7 @@ default_normalizer <- \(
 
 # Use the graph constraint/repeat handling with CSV Km1 as objective.
 default_km1_normalizer <- function(df, ...) {
+    df <- select_result_values(df)
     if (!"Km1" %in% names(df) || !is.numeric(df$Km1)) {
         stop("KM1 profiles require a numeric 'Km1' column in every CSV.")
     }
@@ -307,7 +316,8 @@ default_hypergraph_normalizer <- \(
     aggregate.pre = identity,
     aggregate.post = identity
 ) {
-    normalize_constraint_flags(df) %>%
+    select_result_values(df) %>%
+        normalize_constraint_flags() %>%
         dplyr::mutate(Hypergraph = sub("\\.zoltan.hg|\\.metis|\\.bgf|\\.mtx|\\.mtx.hgr|\\.hgr|\\.graph|\\.scotch", "", Hypergraph)) %>%
         dplyr::mutate(Failed = ifelse(Failed == "1", TRUE, FALSE)) %>%
         dplyr::mutate(Timeout = ifelse(Timeout == "1", TRUE, FALSE)) %>%
@@ -355,7 +365,7 @@ load_dataset <- \(
     } else {
         real_filename <- paste0(DATA_INPUT_DIR, "/", filename, ".csv")
     }
-    cache_filename <- paste0(CACHE_DIR, "/", gsub("[^A-Za-z0-9_.-]", "_", paste(name, normalizePath(real_filename, mustWork = FALSE), sep = "__")), ".constraints-v4.cached.csv")
+    cache_filename <- paste0(CACHE_DIR, "/", gsub("[^A-Za-z0-9_.-]", "_", paste(name, normalizePath(real_filename, mustWork = FALSE), sep = "__")), ".constraints-v6.cached.csv")
     df <- data.frame()
 
     if (cache && file.exists(cache_filename)) {
@@ -446,7 +456,7 @@ load_hypergraph_dataset <- \(
     eps_offset = 0,
     cache = TRUE) {
     real_filename <- paste0(DATA_INPUT_DIR, "/", filename, ".csv")
-    cache_filename <- paste0(CACHE_DIR, "/", gsub("/", "_", filename), ".constraints-v4.cached.csv")
+    cache_filename <- paste0(CACHE_DIR, "/", gsub("/", "_", filename), ".constraints-v6.cached.csv")
     df <- data.frame()
 
     if (cache && file.exists(cache_filename)) {
@@ -552,7 +562,8 @@ current_device_file <- ""
 current_device_file_is_tikz <- FALSE
 
 open_pdf <- function(file, width = 7) {
-    current_device_file <<- paste0(PDF_OUTPUT, "/", file, ".pdf")
+    current_device_file <<- plot_output_path(paste0(file, ".pdf"),
+        root = if (PDF_OUTPUT == ".") "pdf" else PDF_OUTPUT)
     current_device_file_is_tikz <<- FALSE
 
     cli::cli_alert_info("Writing PDF file {.path {current_device_file}}")

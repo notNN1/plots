@@ -1,5 +1,14 @@
 # Plotting scripts
 
+Experiment scripts are grouped by topic under [`scripts/`](scripts/README.md).
+Run them from the repository root. Shared functions stay in `R/`, regression
+checks and the combined plot script in `tests/`, and the `mkexp.R` entry point
+at the root.
+
+Generated PDFs are organized by experiment under [`pdf/`](pdf/README.md):
+`metric/k32`, `metric/k64`, `st`, `st_bfs`, `grids`, `examples`, `tests`, and `misc`.
+Standalone scripts write new plots to these folders automatically.
+
 `mkexp.R` is the single mkexp2 entry point for this submodule:
 
 ```sh
@@ -12,7 +21,7 @@ Reusable plotting and stats code lives in `R/`. The old mkexp2 stats backend is
 now `R/stats.R`, centered on `create_stats_summary(..., results_dir = "results")`.
 
 Place standalone example `*.csv` files in `data/` and load them in
-`instances.R`. Result files should include at least `Graph`, `K`, `Cut`,
+`scripts/examples/instances.R`. Result files should include at least `Graph`, `K`, `Cut`,
 `Imbalance`, and `Time`; optional columns include `Seed`, `Epsilon`, `Threads`,
 `Cores`, `Failed`, and `Timeout`. Run `make example-pdf` or `make example-tex`
 to generate example plots.
@@ -22,6 +31,16 @@ Connectivity-aware CSVs can use this header:
 ```csv
 Graph,K,Cut,Time,Imbalance,Connectivity,FailedImbalance,FailedConnectivity,Failed
 ```
+
+For summarized runs, add `AverageKm1`, `AverageTime`, `AverageConnectivity`,
+and `AverageImbalance`. The original `Km1`, `Time`, `Connectivity`, and `Imbalance`
+columns hold best successful results. The metric profile script always generates
+both best-only and average-only PDFs for each profile, named `_best.pdf` and
+`_average.pdf`. Values are never mixed or selected by success rate within a plot.
+The metric imbalance profile ignores connectivity as a feasibility constraint
+and uses only **I** and **F** status markers. Success-rate plots show reported rates.
+CSVs without `Average*` columns keep their existing interpretation.
+Shared selection lives in `R/result_values.R`.
 
 `Connectivity` is a nonnegative number (including fractional averages) of unnecessary components in the
 resulting partitioning: zero satisfies the constraint; any positive count violates
@@ -54,7 +73,7 @@ All performance-profile plot functions split input datasets by the CSV's
 undersupplied K values are skipped with a warning. If none qualify, plotting stops
 with an error. Graph keys must still match within each K. A single qualifying K
 returns one ggplot; multiple K values return a named list of ggplots, one per K.
-`test.R` prints each qualifying K on its own PDF page. Datasets containing several
+`tests/test.R` prints each qualifying K on its own PDF page. Datasets containing several
 K values are supported too.
 
 ### `create_performance_profile_plot(...)`
@@ -91,7 +110,7 @@ It reserves `segment.errors.width = 3` for the overflow and error labels.
 It accepts the normal profile options plus `segment.connectivity.width`
 (default 4), `segment.connectivity.gap` (default 1, an unmeasured horizontal gap
 before C: 0), and `column.components` (default `AvgConnectivity`). Connectivity
-violations require finite nonnegative severity values. `test.R` writes the normal
+violations require finite nonnegative severity values. `tests/test.R` writes the normal
 profile, expanded profile, and imbalance-only profile as separate pages in the same PDF.
 
 ### `create_imbalance_performance_profile_plot(...)`
@@ -119,16 +138,16 @@ When supplied, success rates below 0.75 determine imbalance violations for all
 profiles, overriding average imbalance and explicit imbalance flags. Exactly 0.75
 is accepted. Legacy CSVs without success rates retain their prior constraint rules.
 Missing success rates are not inferred from average imbalance or failure flags.
-`test.R` adds these profiles as separate PDF pages for each K.
+`tests/test.R` adds these profiles as separate PDF pages for each K.
 
 ### `create_imbalance_success_rate_rank_plot(data, ...)`
 
 Creates a horizontal bar chart with one row per graph, sorted by
 `ImbalanceSuccessRate` ascending (lowest rate at the top). The input must contain
 unique graph names and finite success rates between 0 and 1. The
-`st_hyperparameters_advanced_imbalance_rank.R` script applies it to the CSV with
+`scripts/st/st_hyperparameters_advanced_imbalance_rank.R` script applies it to the CSV with
 recalculation budget 3.
-`st_bfs_hyperparameters_subtree_imbalance_rank.R` creates the same chart for
+`scripts/st_bfs/st_bfs_hyperparameters_subtree_imbalance_rank.R` creates the same chart for
 ST_BFS Subtree with 2 origins and 2 spanning tree recalculations.
 
 ### `create_expanded_connectivity_performance_profile_plot(...)`
@@ -143,7 +162,7 @@ The objective defaults to `AvgCutWithoutConnectivity`; use
 imbalance-success comparison. This objective still uses imbalance-valid runs.
 Completed instances require finite success rates between 0 and 1.
 Customize `column.success.rate`, `segment.connectivity.width` (4), and
-`segment.connectivity.gap` (1). `test.R` includes a separate page for each K.
+`segment.connectivity.gap` (1). `tests/test.R` includes a separate page for each K.
 
 ### `create_running_time_box_plot(...)`
 
@@ -315,7 +334,7 @@ algorithm legend. `create_standalone_legend()` renders that legend to TikZ. Key
 arguments: `colors`, `levels`, `title`, `basename`, `nrow`, `position`,
 `suffix`, `tex`.
 
-`test.R` uses numeric `Km1` from each CSV for all three profiles.
+`tests/test.R` uses numeric `Km1` from each CSV for all three profiles.
 Its loader uses `default_km1_normalizer()`, exposing `AvgKM1` for the
 connectivity profile and `AvgKM1WithoutConnectivity` for profiles ignoring
 connectivity. The existing feasibility and repeated-run averaging rules apply.
@@ -323,7 +342,7 @@ Every CSV in the loaded folders must include `Km1`; there is no cut fallback.
 
 ### Imbalance success-rate grid
 
-Run `source("imbalance_success_grid.R")` to create `imbalance_success_grid.pdf`.
+Run `source("scripts/grids/imbalance_success_grid.R")` to create `pdf/grids/imbalance_success_grid.pdf`.
 Edit `data/imbalance_success_grid_layout.csv` to associate each CSV with integer
 `x,y` coordinates. Paths are relative to the layout file; larger y appears higher.
 Each filename and coordinate pair must be unique. The layout uses the CSVs in `data/st_bfs options`, with x set to the number
@@ -331,13 +350,13 @@ of spanning tree recalculations and y set to the number of BFS origins.
 Each square shows the fraction of completed graph rows with
 `ImbalanceSuccessRate < threshold` (excluding failures and timeouts), rounded to two
 decimal places. The default threshold is 0.75; equality is not counted.
-Set `imbalance_grid_threshold` in `test.R`, or pass it directly:
+Set `imbalance_grid_threshold` in `tests/test.R`, or pass it directly:
 
 ```r
 create_imbalance_success_grid_plot("data/imbalance_success_grid_layout.csv", threshold = 0.9)
 ```
 
-The standalone `imbalance_success_grid.R` script exposes a `threshold` variable.
+The standalone `scripts/grids/imbalance_success_grid.R` script exposes a `threshold` variable.
 Thresholds must be between 0 and 1; the legend shows the configured value.
 A file without completed rows displays NA. Unassigned positions remain empty.
 
@@ -360,8 +379,8 @@ The legend uses five evenly spaced labels and rounds its upper limit up to a mul
 The plot sums the recorded values; if CSV times are averages of repeats, it sums
 those averages.
 
-`test.R` adds this grid after the imbalance grid. Run `source("total_time_grid.R")`
-to save it separately as `total_time_grid.pdf`.
+`tests/test.R` adds this grid after the imbalance grid. Run `source("scripts/grids/total_time_grid.R")`
+to save it separately as `pdf/grids/total_time_grid.pdf`.
 
 ### Constraint-only profiles (no quality comparison)
 
@@ -382,4 +401,4 @@ Timeouts and execution failures both enter at F.
 These functions require no objective columns and retain the per-K comparison,
 matching graph keys, colors, levels, and plain-text/TeX label support. Customize
 `column.success.rate`, `column.components`, or `column.imbalanced` as appropriate.
-`test.R` appends all three variants as separate pages for each qualifying K.
+`tests/test.R` appends all three variants as separate pages for each qualifying K.
