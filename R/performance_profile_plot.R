@@ -462,6 +462,13 @@ create_performance_profile_data <- function(
         ggplot2::geom_step(linewidth = 1.5) +
         ggplot2::guides(color = ggplot2::guide_legend(title = legend.title))
 
+    # A configuration best on every instance can collapse to one corner point.
+    corner_points <- data[data$Ratio == 0 & data$Fraction == 1, , drop = FALSE]
+    if (nrow(corner_points)) {
+        plot <- plot + ggplot2::geom_point(data = corner_points, size = 3.5,
+            show.legend = FALSE) + ggplot2::coord_cartesian(clip = "off")
+    }
+
     x <- 0
     for (segment in segments) {
         x <- x + segment$width

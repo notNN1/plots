@@ -5,8 +5,10 @@ Run scripts from the repository root so that data and shared-function paths reso
 | Folder | Purpose |
 | --- | --- |
 | `metric/` | Metric comparisons: connectivity, imbalance, and component counts |
+| `refinement/` | Refinement KM1 performance profiles with imbalance handling |
 | `st/` | ST options, hyperparameter grids, and success rates by graph |
 | `st_bfs/` | ST_BFS options, hyperparameter grids, and Subtree success rates by graph |
+| `st_vs_st_bfs/` | ST versus ST_BFS imbalance threshold comparison |
 | `grids/` | Standalone imbalance success and total time grids |
 | `examples/` | Example plots and their dataset configuration (`instances.R`) |
 | `setup/` | R dependency installation |

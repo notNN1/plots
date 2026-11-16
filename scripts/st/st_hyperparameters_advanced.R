@@ -15,18 +15,18 @@ if (any(!grepl(pattern, filenames))) {
 }
 layout <- data.frame(
     filename = files,
-    x = as.integer(sub(pattern, "\\1", filenames)),
+    x = as.integer(sub(pattern, "\\1", filenames)) - 1L,
     y = 1,
     K = as.integer(sub(pattern, "\\2", filenames))
 )
 
-# These experiments vary only the number of spanning trees, so use a single row.
-style_grid <- function(plot, k) {
+# One initial spanning tree plus retries: display budgets 0 through 9.
+style_grid <- function(plot) {
     for (layer in plot$layers) {
         if (inherits(layer$geom, "GeomText")) layer$aes_params$size <- 7.5
     }
-    plot + ggplot2::labs(x = "Number of Spanning Trees", y = NULL,
-        subtitle = paste("K =", k)) +
+    plot + ggplot2::labs(x = "Retry Budget", y = NULL,
+        title = NULL, subtitle = NULL, fill = NULL) +
         ggplot2::theme(
             plot.title = ggplot2::element_text(size = 30, hjust = .5),
             plot.subtitle = ggplot2::element_text(size = 24, hjust = .5),
@@ -36,12 +36,13 @@ style_grid <- function(plot, k) {
             axis.ticks.y = ggplot2::element_blank(),
             axis.line.y = ggplot2::element_blank(),
             legend.text = ggplot2::element_text(size = 22),
+            legend.title = ggplot2::element_blank(),
             plot.margin = ggplot2::margin(18, 24, 18, 24)
         ) +
         ggplot2::guides(fill = ggplot2::guide_colorbar(
+            title = NULL,
             barwidth = grid::unit(20, "cm"), barheight = grid::unit(1, "cm"),
-            direction = "horizontal", title.position = "top",
-            title.theme = ggplot2::element_text(size = 22, hjust = .5)))
+            direction = "horizontal"))
 }
 
 layout_file <- tempfile(fileext = ".csv")
@@ -51,8 +52,8 @@ plots <- tryCatch({
         write.csv(layout[layout$K == k, c("filename", "x", "y")],
                   layout_file, row.names = FALSE)
         grids <- c(grids, list(
-            style_grid(create_imbalance_success_grid_plot(layout_file, threshold), k),
-            style_grid(create_total_time_grid_plot(layout_file), k)
+            style_grid(create_imbalance_success_grid_plot(layout_file, threshold)),
+            style_grid(create_total_time_grid_plot(layout_file))
         ))
     }
     grids

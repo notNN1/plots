@@ -10,6 +10,10 @@ plot_output_path <- function(filename, root = "pdf") {
         } else {
             file.path("metric", "k32")
         }
+    } else if (startsWith(name, "refinement_")) {
+        "refinement"
+    } else if (startsWith(name, "st_vs_st_bfs_")) {
+        "st_vs_st_bfs"
     } else if (grepl("^st_(bfs|bs)_", name)) {
         "st_bfs"
     } else if (startsWith(name, "st_")) {

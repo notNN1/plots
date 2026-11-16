@@ -6,8 +6,10 @@
 | `metric/k64/` | K = 64 metric connectivity and imbalance profiles |
 | `metric/` | Earlier combined metric performance profile |
 | `metric/archive/` | Earlier metric PDFs from before uniform best/average selection |
+| `refinement/` | Refinement KM1 performance profiles, best and average |
 | `st/` | ST options, hyperparameter grids, and success rates by graph |
 | `st_bfs/` | ST_BFS options, hyperparameter grids, and Subtree success rates by graph |
+| `st_vs_st_bfs/` | ST versus ST_BFS imbalance threshold comparison |
 | `grids/` | Standalone imbalance and total time grids |
 | `examples/` | Example plots |
 | `tests/` | Combined test plots |

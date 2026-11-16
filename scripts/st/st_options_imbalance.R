@@ -7,8 +7,7 @@ source("R/performance_profile_plot.R")
 data_dir <- normalizePath("data/st_options", mustWork = TRUE)
 csv_files <- c(
     "Normal" = "do_nothing_ip.st_no.refinement_st.normal_st.recalculations.5_k32.csv",
-    "Advanced" = "do_nothing_ip.st_no.refinement_st.advanced_st.recalculations.5_k32.csv",
-    "Vine" = "do_nothing_ip.st_no.refinement_st.recalculations.5_st.vine_k32.csv"
+    "Advanced" = "do_nothing_ip.st_no.refinement_st.advanced_st.recalculations.5_k32.csv"
 )
 
 datasets <- lapply(names(csv_files), function(name) {
@@ -60,7 +59,7 @@ for (dataset in datasets) {
 }
 profile$data$Fraction <- 1 - profile$data$Fraction
 profile <- profile +
-    ggplot2::labs(title = "Imbalance Threshold Profile") +
+    ggplot2::labs(title = NULL, subtitle = NULL) +
     default_theme +
     ggplot2::theme(
         legend.position = "bottom",
